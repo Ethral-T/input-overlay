@@ -31,11 +31,21 @@
 
 /* ---- controller ---- */
 /* Layered artwork (every controller skin): pixelate the artwork and the lit-up copies of its parts. The artwork group has the invert filter
-   set as an attribute and a CSS filter replaces it, so the invert is repeated. #padSvg[data-skin] lets a theme treat each skin
-   differently: the Xbox, GameCube, Switch and PlayStation artwork is drawn smaller, so it gets smaller blocks. */
+   set as an attribute and a CSS filter replaces it, so the invert is repeated. The blocks should come out about 4 screen pixels wide, like the
+   keys' pixels: the artwork is drawn at 0.4 screen pixels per unit for every skin except Xbox, whose drawing is smaller (0.5), so Xbox gets
+   8-unit blocks and the others 10. #padSvg[data-skin] lets a theme treat each skin differently. */
 #icon { filter: url(#inv) url(#pixelate-10); }
 #fx { filter: url(#pixelate-10); }
-#padSvg[data-skin="xbox"] #icon, #padSvg[data-skin="gamecube"] #icon, #padSvg[data-skin="switch"] #icon, #padSvg[data-skin="switch2"] #icon, #padSvg[data-skin="ps4"] #icon, #padSvg[data-skin="ps5"] #icon { filter: url(#inv) url(#pixelate-8); }
-#padSvg[data-skin="xbox"] #fx, #padSvg[data-skin="gamecube"] #fx, #padSvg[data-skin="switch"] #fx, #padSvg[data-skin="switch2"] #fx, #padSvg[data-skin="ps4"] #fx, #padSvg[data-skin="ps5"] #fx { filter: url(#pixelate-8); }
+#padSvg[data-skin="xbox"] #icon { filter: url(#inv) url(#pixelate-8); }
+#padSvg[data-skin="xbox"] #fx { filter: url(#pixelate-8); }
+/* The GameCube is mostly big soft curves, which hide small blocks, so it gets larger ones (14 units, about 5.5 screen pixels). */
+#padSvg[data-skin="gamecube"] #icon { filter: url(#inv) url(#pixelate-14); }
+#padSvg[data-skin="gamecube"] #fx { filter: url(#pixelate-14); }
+
+/* The controller's body gets the same flat colour as the keys (the Fill opacity slider still controls how solid it is) and the same dark
+   outline, which stays solid like the keys' borders. */
+#padSvg { --body-fill: #282c52; --ring-color: #0a0c1c; }
+#icon > .bodyMain { filter: url(#bodyfill); }
+#icon > .bodyRing { display: inline; filter: url(#bodyring); }
 
 #layerSkin .lbl { font-family: "IO Pixel", monospace; font-weight: 400; font-size: 40px; }   /* the Steam back-button labels: 0.4px per unit, so 16px */

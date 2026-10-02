@@ -7,7 +7,9 @@ A preset is one overlay "variant":
    "controller": "auto" | "steam" | "xbox" | "ps4" | "ps5" | "switch" | "switch2" | "gamecube" (artwork; auto picks from the connected pad),
    "swapSide": bool (Mouse Button Invert; used when that setting is "this preset" scoped),
    "align": "tl".."br" (where the overlay sits inside the Browser Source: top/middle/bottom + left/centre/right; default "mc"),
-   "accent": "#rrggbb" (used when Highlight colour is "this preset" scoped), "opacity": 0.1..1 (whole overlay), "fill": 0..1 (key/mouse/controller background), "scale": float, "sens": float, "tpt": float, "tprot": float}
+   "accent": "#rrggbb" (used when Highlight colour is "this preset" scoped), "opacity": 0.1..1 (whole overlay), "fill": 0..1 (key/mouse/controller background), "scale": float, "sens": float, "tpt": float, "tprot": float,
+   "gyro": "off" | "tilt" | "aim" | "both" (how a controller's gyroscope is shown: the picture tilts and/or an aim dot with a trail),
+   "gsens": float (gyro sensitivity)}
 """
 import json
 import os
@@ -69,6 +71,8 @@ def clean(p):
         "opacity": num("opacity", 1.0, 0.1, 1.0),
         "fill": num("fill", 0.8, 0.0, 1.0),
         "tprot": num("tprot", 9.0, -45.0, 45.0),
+        "gyro": p.get("gyro") if p.get("gyro") in ("off", "tilt", "aim", "both") else "off",
+        "gsens": num("gsens", 1.0, 0.1, 5.0),
     }
 
 

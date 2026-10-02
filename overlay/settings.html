@@ -190,6 +190,10 @@
           <span class="ctl"><select id="controller"><option value="auto">Auto-detect</option><option value="steam">Steam Controller</option><option value="xbox">Xbox</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="switch">Nintendo Switch</option><option value="switch2">Switch 2 Pro</option><option value="gamecube">GameCube</option></select></span></label>
         <label class="setting"><span class="name">Show controller</span>
           <span class="ctl"><select id="pad"><option value="auto">When connected</option><option value="on">Always</option><option value="off">Hidden</option></select></span></label>
+        <label class="setting"><span class="name">Gyro<small>For controllers with motion sensors (Steam, PlayStation, Switch). <b>Tilt</b> leans the controller picture as you turn it; <b>Aim</b> adds a box with a dot that follows the turn and leaves a trail.</small></span>
+          <span class="ctl"><select id="gyro"><option value="off">Off</option><option value="tilt">Tilt the picture</option><option value="aim">Aim dot</option><option value="both">Both</option></select></span></label>
+        <label class="setting"><span class="name">Gyro sensitivity<small>How far the picture leans and how fast the dot moves for the same turn.</small></span>
+          <span class="ctl"><input type="range" id="gsens" min="0.2" max="4" step="0.1"><span class="val" id="gsensV"></span></span></label>
         <label class="setting"><span class="name">Trackpad click pressure<small>How hard you press a trackpad before it counts as a click.</small></span>
           <span class="ctl"><input type="range" id="tpt" min="0.1" max="1" step="0.05"><span class="val" id="tptV"></span></span></label>
       </div>
@@ -284,10 +288,11 @@ function syncControls() {
   $('name').value = cur.name;
   $('mouse').value = cur.mouse ? '1' : '0';
   $('controller').value = cur.controller || 'auto';
+  $('gyro').value = cur.gyro || 'off';
   $('pad').value = cur.pad;
   $('accent').value = valueOf('accent');
   document.querySelectorAll('#agrid button').forEach(b => b.classList.toggle('on', b.dataset.a === cur.align));
-  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt']) {
+  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'gsens']) {
     const v = SHARED.includes(k) ? valueOf(k) : cur[k];
     $(k).value = v; $(k + 'V').textContent = fmt(v);
   }
@@ -302,6 +307,7 @@ function syncControls() {
 }
 $('name').addEventListener('input', e => { cur.name = e.target.value.trim() || cur.name; renderUrl(); schedSave(); });
 $('controller').onchange = e => { cur.controller = e.target.value; changed(); };
+$('gyro').onchange = e => { cur.gyro = e.target.value; changed(); };
 $('mouse').onchange = e => { cur.mouse = e.target.value === '1'; changed(); };
 $('pad').onchange = e => { cur.pad = e.target.value; changed(); };
 let settingsTimer = null;
@@ -322,7 +328,7 @@ function setValue(k, v) {
   else { cur[k] = v; changed(); }
 }
 const fmt = v => (+v).toFixed(2).replace(/0$/, '');
-for (const k of ['scale', 'sens', 'tpt']) $(k).oninput = e => {
+for (const k of ['scale', 'sens', 'tpt', 'gsens']) $(k).oninput = e => {
   cur[k] = parseFloat(e.target.value); $(k + 'V').textContent = fmt(cur[k]); changed();
 };
 for (const k of SHARED) $(k).oninput = e => { const v = parseFloat(e.target.value); $(k + 'V').textContent = fmt(v); setValue(k, v); };

@@ -46,6 +46,12 @@
 
   #layerSkin .lbl { font: 700 var(--size, 30px) "Segoe UI", sans-serif; text-anchor: middle; dominant-baseline: central; fill: #14171d; pointer-events: none; }
 
+  /* ---- gyro aim box (the "aim" gyro display) ---- */
+  #gyroBox { flex: none; width: 150px; height: 120px; box-sizing: border-box; background: var(--key-bg); border: 1px solid var(--key-border); border-radius: 7px; }
+  #gyroCv { width: 148px; height: 118px; display: block; pointer-events: none; }
+  #pad { will-change: transform; }
+  #icon > .bodyRing { display: none; }                  /* the outline copy of the body: off unless a theme turns it on */
+
   #kbHandle { position: fixed; display: none; width: 6px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 50; }
 
   /* vector controller skins (img/pad-*.svg): parts are tinted via --part, set from script */
@@ -68,6 +74,9 @@
   <filter id="pixelate-6" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="1.5" y="1.5" width="3" height="3"/><feComposite width="6" height="6"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="1.5"/></filter>
   <filter id="pixelate-8" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="2" y="2" width="4" height="4"/><feComposite width="8" height="8"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="2"/></filter>
   <filter id="pixelate-10" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="2.5" y="2.5" width="5" height="5"/><feComposite width="10" height="10"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="2.5"/></filter>
+  <filter id="pixelate-12" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="3" y="3" width="6" height="6"/><feComposite width="12" height="12"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="3"/></filter>
+  <filter id="pixelate-14" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="3.5" y="3.5" width="7" height="7"/><feComposite width="14" height="14"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="3.5"/></filter>
+  <filter id="pixelate-16" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="4" y="4" width="8" height="8"/><feComposite width="16" height="16"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="4"/></filter>
 </defs></svg>
 <div id="stage"><div id="root">
   <div id="kb" class="kb-main"></div>
@@ -88,8 +97,23 @@
   <div id="pad" class="hidden">
     <svg id="padSvg" viewBox="20 60 984 870">
       <defs>
-        <!-- invert the (dark-on-light) icon artwork -->
-        <filter id="inv" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">
+        <!-- invert the (dark-on-light) icon artwork. The filter area is a little larger than the artwork so effects a theme adds around its edge
+             (like the body outline) are not cut off at the artwork's box. -->
+        <filter id="inv" color-interpolation-filters="sRGB" x="-10%" y="-10%" width="120%" height="120%">
+          <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+        </filter>
+        <!-- recolour the artwork's body (its first image) with the flat colour a theme sets in --body-fill. The whole artwork is inverted
+             afterwards, so the colour is inverted here first and comes out as asked. Themes opt in with: #icon > .bodyMain { filter: url(#bodyfill) } -->
+        <filter id="bodyfill" color-interpolation-filters="sRGB">
+          <feFlood style="flood-color: var(--body-fill, #fff)"/><feComposite in2="SourceAlpha" operator="in"/>
+          <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+        </filter>
+        <!-- an outline around the artwork's body, in the colour a theme sets in --ring-color (inverted first, like --body-fill). It is drawn from a
+             hidden copy of the body: a theme shows it with  #icon > .bodyRing { display: inline; filter: url(#bodyring) } -->
+        <filter id="bodyring" color-interpolation-filters="sRGB">
+          <feMorphology in="SourceAlpha" operator="dilate" radius="10" result="grown"/>
+          <feComposite in="grown" in2="SourceAlpha" operator="out" result="ring"/>
+          <feFlood style="flood-color: var(--ring-color, #000)"/><feComposite in2="ring" operator="in"/>
           <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
         </filter>
         <!-- recolour a part's silhouette with the accent colour -->
@@ -105,6 +129,7 @@
       <g id="vecSkin" class="hidden"></g>
     </svg>
   </div>
+  <div id="gyroBox" class="hidden"><canvas id="gyroCv" width="296" height="236"></canvas></div>
 </div>
 
 </div>
@@ -118,9 +143,9 @@ const dbg = q.get('debug') === '1';
 if (dbg) { const pre = document.createElement('pre'); pre.id = 'dbg'; document.body.appendChild(pre); }
 
 // A preset (see config.py) decides what is shown. URL parameters override it for quick tweaks:
-//   kb=full|compact|off  mouse=0|1  pad=0|1|auto  accent=<hex or colour name>  scale  sens  tpt  tprot
+//   kb=full|compact|off  mouse=0|1  pad=0|1|auto  accent=<hex or colour name>  scale  sens  tpt  tprot  gyro=off|tilt|aim|both  gsens
 const DEFAULTS = { keyboard: { mode: 'full', keys: [], sizes: {} }, mouse: true, pad: 'auto', align: 'mc', accent: '#38bdf8',
-                   scale: 1, opacity: 1, fill: .8, swapSide: false, controller: 'auto', theme: 'default', sens: 1, tpt: .5, tprot: 9 };
+                   scale: 1, opacity: 1, fill: .8, swapSide: false, controller: 'auto', theme: 'default', sens: 1, tpt: .5, tprot: 9, gyro: 'off', gsens: 1 };
 const normalize = base => ({ ...DEFAULTS, ...base, keyboard: { ...DEFAULTS.keyboard, ...(base && base.keyboard) } });
 function withOverrides(c) {
   const kb = q.get('kb');
@@ -134,7 +159,8 @@ function withOverrides(c) {
   if (/^[tmb][lcr]$/.test(q.get('align') || '')) c.align = q.get('align');
   const acc = q.get('accent');
   if (acc) c.accent = /^[0-9a-f]{3,8}$/i.test(acc) ? '#' + acc : acc;
-  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'tprot']) if (q.has(k)) c[k] = parseFloat(q.get(k));
+  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'tprot', 'gsens']) if (q.has(k)) c[k] = parseFloat(q.get(k));
+  if (['off', 'tilt', 'aim', 'both'].includes(q.get('gyro'))) c.gyro = q.get('gyro');
   return c;
 }
 
@@ -172,6 +198,7 @@ function applyConfig(c) {
   if (c.pad !== 'off') syncSkin();
   pads.forEach(t => t.g.setAttribute('transform', padTransform(t)));
   updatePadVisibility();
+  updateGyro();
 }
 function updatePadVisibility() { show('pad', cfg.pad === 'on' || (cfg.pad === 'auto' && (padConnected || draft))); }
 
@@ -233,6 +260,61 @@ function drawMotion() {
   requestAnimationFrame(drawMotion);
 }
 drawMotion();
+
+// ---------------------------------------------------------------- gyro
+// The server sends the controller's angular speed in rad/s (p.g = [pitch, yaw, roll], SDL's axes) while the pad reports a gyroscope.
+// A gyroscope gives speed, not position, so both displays integrate it and let it relax back to the middle:
+//   tilt - the controller picture leans the way the controller is turned (CSS 3D on #pad);
+//   aim  - a dot in a box moves with the turn and drifts back, leaving a fading trail like the mouse dot.
+const gyro = { have: false, rate: [0, 0, 0], pitch: 0, yaw: 0, roll: 0, ax: 0, ay: 0, last: 0, trail: [], tilted: false };
+const GY = { pitch: 1, yaw: 1, roll: 1, aimX: -1, aimY: -1 };    // +1 / -1: flip one if that direction comes out the wrong way round
+const GYRO_NOISE = 0.04;                                           // rad/s below this counts as still
+const wantTilt = () => cfg.gyro === 'tilt' || cfg.gyro === 'both';
+const wantAim = () => cfg.gyro === 'aim' || cfg.gyro === 'both';
+const gyroBox = document.getElementById('gyroBox'), gcx = document.getElementById('gyroCv').getContext('2d');
+gcx.scale(2, 2);                                                   // the canvas is drawn at 2x so it stays sharp
+function updateGyro() {
+  gyroBox.classList.toggle('hidden', !(wantAim() && ((gyro.have && padConnected) || draft)));
+  if (!wantTilt() || !gyro.have) {                                 // not tilting: put the picture back
+    if (gyro.tilted) { document.getElementById('pad').style.transform = ''; gyro.tilted = false; }
+    gyro.pitch = gyro.yaw = gyro.roll = 0;
+  }
+}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+function drawGyro(now) {
+  const dt = Math.min(0.05, Math.max(0, (now - gyro.last) / 1000) || 0.016); gyro.last = now;
+  const [rp, ry, rr] = gyro.rate.map(v => Math.abs(v) < GYRO_NOISE ? 0 : v);
+  const k = (cfg.gsens || 1), deg = 180 / Math.PI;
+  if (wantTilt() && gyro.have) {
+    const keep = Math.exp(-dt / 1.2);                              // leaks back to level in about a second
+    gyro.pitch = clamp((gyro.pitch + GY.pitch * rp * deg * dt * k) * keep, -50, 50);
+    gyro.yaw   = clamp((gyro.yaw   + GY.yaw   * ry * deg * dt * k) * keep, -50, 50);
+    gyro.roll  = clamp((gyro.roll  + GY.roll  * rr * deg * dt * k) * keep, -60, 60);
+    // right-handed rotation, positive counter-clockwise seen from the positive axis; CSS rotateX/Y/Z turn the other way, hence the minus signs
+    document.getElementById('pad').style.transform = `perspective(900px) rotateX(${-gyro.pitch.toFixed(1)}deg) rotateY(${-gyro.yaw.toFixed(1)}deg) rotateZ(${-gyro.roll.toFixed(1)}deg)`;
+    gyro.tilted = true;
+  }
+  if (!gyroBox.classList.contains('hidden')) {
+    const keep = Math.exp(-dt / 0.9);
+    gyro.ax = clamp((gyro.ax + GY.aimX * ry * dt * 0.9 * k) * keep, -1, 1);
+    gyro.ay = clamp((gyro.ay + GY.aimY * rp * dt * 0.9 * k) * keep, -1, 1);
+    gyro.trail.push([gyro.ax, gyro.ay]); if (gyro.trail.length > 30) gyro.trail.shift();
+    const W = 148, H = 118, cx0 = W / 2, cy0 = H / 2, ex = W / 2 - 14, ey = H / 2 - 14;
+    gcx.clearRect(0, 0, W, H);
+    gcx.strokeStyle = 'rgba(255,255,255,.14)'; gcx.lineWidth = 1;
+    gcx.beginPath(); gcx.moveTo(cx0, 8); gcx.lineTo(cx0, H - 8); gcx.moveTo(8, cy0); gcx.lineTo(W - 8, cy0); gcx.stroke();
+    const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#38bdf8';
+    gcx.strokeStyle = acc; gcx.lineCap = 'round';
+    for (let i = 1; i < gyro.trail.length; i++) {
+      gcx.globalAlpha = i / gyro.trail.length * .7; gcx.lineWidth = 1 + i / gyro.trail.length * 4;
+      gcx.beginPath(); gcx.moveTo(cx0 + gyro.trail[i - 1][0] * ex, cy0 + gyro.trail[i - 1][1] * ey); gcx.lineTo(cx0 + gyro.trail[i][0] * ex, cy0 + gyro.trail[i][1] * ey); gcx.stroke();
+    }
+    gcx.globalAlpha = 1; gcx.fillStyle = acc;
+    gcx.beginPath(); gcx.arc(cx0 + gyro.ax * ex, cy0 + gyro.ay * ey, 6, 0, 6.2832); gcx.fill();
+  }
+  requestAnimationFrame(drawGyro);
+}
+requestAnimationFrame(drawGyro);
 
 // ---------------------------------------------------------------- controller artwork
 const NS = 'http://www.w3.org/2000/svg';
@@ -393,6 +475,13 @@ function buildLayered(name, txt) {
   // 2) build the real thing
   for (const n of [...r.childNodes]) icon.appendChild(document.importNode(n, true));
   bodyEl = [...icon.children].find(e => e.tagName === 'use') || null;
+  if (bodyEl) {
+    bodyEl.classList.add('bodyMain');
+    // a copy of the body drawn just behind it at full opacity, hidden unless a theme turns it on: it is how a theme gives the controller an
+    // outline that stays solid while the body's own fill is see-through
+    const ring = bodyEl.cloneNode(true); ring.removeAttribute('opacity'); ring.classList.remove('bodyMain'); ring.classList.add('bodyRing');
+    icon.insertBefore(ring, bodyEl);
+  }
   applyBodyFill();
   const overlay = (id, parent = fx, clip) => {
     const u = mk('use', { href: '#' + id, filter: 'url(#tint)', opacity: 0 }, parent);
@@ -497,7 +586,8 @@ function debugPad(p) {
     }
   }
   prevBits = cur; while (dbgLog.length > 12) dbgLog.shift();
-  const f = `skin=${skin}  type=${p.ty}  name=${p.nm}\n` + (p.t || []).map((t, i) => `pad${i}: ${t[0] ? 'touch' : '-----'} pressure ${t[3]}`).join('   ');
+  const f = `skin=${skin}  type=${p.ty}  name=${p.nm}\n` + (p.t || []).map((t, i) => `pad${i}: ${t[0] ? 'touch' : '-----'} pressure ${t[3]}`).join('   ') + '\n' +
+            (p.g ? `gyro (rad/s) pitch ${p.g[0].toFixed(2)}  yaw ${p.g[1].toFixed(2)}  roll ${p.g[2].toFixed(2)}` : 'gyro: not reported by this controller');
   document.getElementById('dbg').textContent = f + '\n' + (dbgLog.length ? dbgLog.join('\n') : 'press a button...');
 }
 
@@ -506,7 +596,10 @@ function onPad(p) {
   lastPad = p;
   if (dbg) debugPad(p);
   padConnected = !!p.c;
+  gyro.have = !!(p.c && p.g);                              // the server sends p.g only while the pad reports a gyroscope
+  gyro.rate = gyro.have ? p.g : [0, 0, 0];
   updatePadVisibility();
+  updateGyro();
   if (cfg.pad !== 'off') syncSkin();
   applyPad(p);
 }
