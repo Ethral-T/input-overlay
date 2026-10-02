@@ -1,0 +1,7 @@
+{
+  "name": "Neon",
+  "author": "Input Overlay",
+  "description": "Glowing outlines in your highlight colour on dark glass.",
+  "version": "1.0",
+  "css": "theme.css"
+}

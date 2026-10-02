@@ -1,0 +1,109 @@
+# Builds the Windows program and packages it as a zip.
+#
+#   * Run it by hand: Actions tab -> Build -> Run workflow. The zip is attached to the run as an artifact.
+#   * Push a tag that starts with "v" (for example v1.0.0): the same build runs and a DRAFT release is created with the zip and its
+#     SHA-256 checksum attached. Nothing is published until you open the draft on GitHub and press Publish.
+#
+# The build runs on a GitHub-hosted runner from the files in this repository only, so what it produces is reproducible by anyone. That is
+# also what code-signing services such as SignPath require: they sign the artifact a pipeline built, not a file from someone's PC.
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install build requirements
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Check the bundled libraries are present
+        run: |
+          foreach ($f in "lib/SDL3.dll", "lib/libusb-1.0.dll", "lib/libusb-NOTICE.txt") {
+            if (-not (Test-Path $f)) { throw "$f is missing from the repository" }
+          }
+
+      - name: Draw the icon
+        run: python appicon.py
+
+      # The same options as build.bat.
+      - name: Build the program (PyInstaller)
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --noconsole --name InputOverlay `
+            --icon assets/icon.ico `
+            --add-data "overlay;overlay" --add-binary "lib/SDL3.dll;lib" --add-binary "lib/libusb-1.0.dll;lib" `
+            --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 --hidden-import pystray._win32 `
+            --exclude-module numpy --exclude-module scipy `
+            app.py
+
+      - name: Package
+        id: pack
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "dev-${{ github.run_number }}" }
+          $name = "InputOverlay_$version"
+          New-Item -ItemType Directory -Path "pkg" | Out-Null
+          Copy-Item "dist/InputOverlay" "pkg/InputOverlay" -Recurse
+          Copy-Item "lib/libusb-NOTICE.txt" "pkg/InputOverlay/"
+          Copy-Item "README.md" "pkg/"
+          Compress-Archive -Path "pkg/*" -DestinationPath "$name.zip"
+          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256.txt"
+          "name=$name" >> $env:GITHUB_OUTPUT
+          Write-Host "$name.zip  sha256 $hash"
+
+      # Starts the built program and checks it serves its page and artwork. If this fails, the build fails and no release is made.
+      # (It passes on GitHub's Windows runners, which have no desktop, so it is a reliable check.)
+      - name: Smoke test
+        run: |
+          $env:INPUT_OVERLAY_HOME = "$env:RUNNER_TEMP/io-config"
+          $p = Start-Process "pkg/InputOverlay/InputOverlay.exe" -ArgumentList "--port", "8799" -PassThru
+          Start-Sleep -Seconds 10
+          $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8799/
+          if ($r.StatusCode -ne 200) { throw "the page returned $($r.StatusCode)" }
+          $s = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8799/img/ps5-controller.svg
+          if ($s.StatusCode -ne 200) { throw "artwork returned $($s.StatusCode)" }
+          Write-Host "program served its page and artwork"
+          Stop-Process -Id $p.Id -Force
+
+      # Code signing would go here (for example the SignPath GitHub Action), between "Package" and the upload: it takes the built folder,
+      # signs InputOverlay.exe, and the zip is then made from the signed folder. Left out until the project is approved.
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.pack.outputs.name }}
+          path: |
+            InputOverlay_*.zip
+            InputOverlay_*.zip.sha256.txt
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      # A draft: it is only visible to people with write access to the repository until you publish it.
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" release/* --repo "${{ github.repository }}" --draft --title "${{ github.ref_name }}" --generate-notes

@@ -1,0 +1,7 @@
+libusb-1.0.dll is libusb 1.0.30 (64-bit, VS2022 build), taken unmodified from the official release
+https://github.com/libusb/libusb/releases/tag/v1.0.30
+
+libusb is free software licensed under the GNU LGPL 2.1 or later. Source code: https://github.com/libusb/libusb
+The DLL is loaded as a separate file at run time (lib\libusb-1.0.dll next to the program), so you can replace it with any other
+build of libusb 1.0.
+It is used only to read the official Nintendo GameCube adapter (gcadapter.py) and the Switch 2 Pro Controller (switch2.py).

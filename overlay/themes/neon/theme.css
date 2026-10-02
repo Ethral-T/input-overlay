@@ -1,0 +1,23 @@
+/* Neon: everything is drawn in your highlight colour (Settings > Appearance). A good starting point for your own theme. */
+
+:root {
+  --key-bg: rgba(5, 8, 20, var(--fill));
+  --key-border: var(--accent);
+  --key-fg: var(--accent);
+}
+
+/* ---- keyboard ---- */
+.key {
+  font-weight: 700; letter-spacing: .02em; border: 2px solid var(--accent); text-shadow: 0 0 6px var(--accent);
+  box-shadow: 0 0 8px var(--accent), inset 0 0 8px rgba(255, 255, 255, .06);
+}
+.key.on { color: #04050c; text-shadow: none; transform: none; box-shadow: 0 0 16px var(--accent), 0 0 34px var(--accent); }
+
+/* ---- mouse ---- */
+#mouseSvg { filter: drop-shadow(0 0 5px var(--accent)); }
+#mouseSvg .shape, #mouseSvg .hit { stroke: var(--accent); }
+#mouseSvg .lbl { fill: var(--accent); }
+
+/* ---- controller ---- */
+#padSvg { filter: drop-shadow(0 0 6px var(--accent)); }       /* a soft glow around whichever controller is shown */
+#vecSkin .body { stroke: var(--accent); stroke-width: 4; }     /* vector skins: outline the body */

@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Input Overlay Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1218; --panel: #171b24; --panel2: #1e2330; --line: #2a3142; --fg: #e8edf5; --muted: #8b95a8;
+    --accent: #38bdf8; --danger: #f87171;
+    --key-bg: rgba(20, 24, 33, .78); --key-border: rgba(255, 255, 255, .18); --key-fg: #e8edf5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  body { display: grid; grid-template-columns: 250px 1fr; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 18px 14px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+  aside h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: .02em; }
+  aside .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  #list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  #list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  #list li:hover { background: var(--panel2); }
+  #list li.sel { background: var(--panel2); border-color: var(--accent); }
+  main { padding: 20px 24px 60px; overflow: auto; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 10px; }
+  .grow { flex: 1 1 auto; }
+  label.f { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+  input[type=text], select { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; min-width: 0; }
+  input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[type=color] { width: 44px; height: 34px; padding: 2px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; }
+  input[type=range] { accent-color: var(--accent); width: 170px; }
+  button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #06121a; border-color: var(--accent); font-weight: 600; }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+  button.chip { padding: 4px 10px; font-size: 12px; border-radius: 999px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: var(--panel2); }
+  .seg button.on { background: var(--accent); color: #06121a; font-weight: 600; }
+  .url { font: 13px Consolas, monospace; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; user-select: all; overflow-wrap: anywhere; }
+  .muted { color: var(--muted); font-size: 12px; }
+  #status { color: var(--muted); font-size: 12px; min-width: 90px; text-align: right; }
+  #status.err { color: var(--danger); }
+  #list li .live { float: right; font-size: 11px; color: #06121a; background: var(--accent); border-radius: 999px; padding: 0 8px; font-weight: 600; }
+  .urlrow { display: flex; gap: 10px; align-items: center; }
+  .urlrow .lbl { width: 150px; flex: none; color: var(--muted); font-size: 12px; }
+  .urlrow .url { flex: 1 1 auto; }
+  .val { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 38px; display: inline-block; }
+
+  /* keyboard editor */
+  #editor { margin-top: 14px; overflow: auto; padding: 4px 2px 8px; user-select: none; touch-action: none; }
+  #editor .key[data-len="4"], #editor .key[data-len="5"] { font-size: 11px; }
+  #editor .key { display: flex; align-items: center; justify-content: center; background: var(--key-bg); border: 1px solid var(--key-border);
+                 border-radius: 7px; color: var(--key-fg); font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .08s; }
+  #editor .key:hover { border-color: var(--accent); }
+  #editor .key.off { opacity: .22; border-style: dashed; }
+  #editor.disabled { opacity: .35; pointer-events: none; }
+
+  /* settings sections */
+  .sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: default; }
+  .setting .name { display: flex; flex-direction: column; font-size: 14px; }
+  .nameRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .nameRow label { cursor: pointer; }
+  .setting .name small { color: var(--muted); font-size: 12px; margin-top: 2px; max-width: 240px; line-height: 1.35; }
+  .setting .ctl { display: flex; align-items: center; gap: 10px; flex: none; }
+  .setting input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+  .setting input[type=range] { width: 150px; }
+  .scope { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  button.scope { font: inherit; font-size: 11px; cursor: pointer; background: none; border: 1px dashed var(--muted); padding: 1px 10px; }
+  button.scope:hover { border-color: var(--accent); color: var(--fg); }
+  button.scope[aria-pressed="true"] { background: var(--accent); border: 1px solid var(--accent); color: #06121a; font-weight: 600; }
+  .sectionNote { color: var(--muted); font-size: 12px; margin: -4px 2px -4px; }
+
+  /* preview */
+  #pvbox { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  #pvbox.dark  { background: #0b0d12; }
+  #pvbox.green { background: #00b140; }
+  #pvbox.check { background: conic-gradient(#2a2f3a 25%, #1b1f28 0 50%, #2a2f3a 0 75%, #1b1f28 0) 0 0 / 24px 24px; }
+  #pv { position: absolute; left: 0; top: 0; border: 0; transform-origin: top left; background: transparent; outline: 2px dashed rgba(255,255,255,.35); outline-offset: -2px; }
+  #mf { position: fixed; left: 0; top: 0; width: 2400px; height: 900px; border: 0; opacity: 0; pointer-events: none; z-index: -1; }
+  input[type=number] { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; width: 100px; }
+  label.check { display: inline-flex; align-items: center; gap: 8px; align-self: flex-end; padding: 8px 4px; cursor: pointer; user-select: none; }
+  label.check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+  .agrid { display: grid; grid-template-columns: repeat(3, 26px); gap: 3px; }
+  .agrid button { width: 26px; height: 22px; padding: 0; border-radius: 5px; }
+  .agrid button.on { background: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Input Overlay</h1>
+  <div class="sub">Each preset is its own overlay with its own OBS URL.</div>
+  <ul id="list"></ul>
+  <button id="btnNew">+ New preset</button>
+</aside>
+
+<main>
+  <div class="card">
+    <div class="row">
+      <label class="f grow">Preset name<input type="text" id="name" maxlength="40"></label>
+      <button id="btnDup">Duplicate</button>
+      <button id="btnDel" class="danger">Delete</button>
+      <span id="status"></span>
+    </div>
+    <div class="row">
+      <button id="btnLive" class="primary">Make this the active preset</button>
+      <span class="muted" id="liveNote"></span>
+    </div>
+    <div class="row urlrow" style="margin-top:14px">
+      <div class="lbl">OBS URL<br>(shows the active preset)</div><div class="url" id="urlBase"></div><button data-copy="urlBase">Copy</button>
+    </div>
+    <div class="row urlrow">
+      <div class="lbl">Pinned to this preset<br>(ignores switching)</div><div class="url" id="url"></div><button data-copy="url">Copy</button>
+    </div>
+    <div class="muted" style="margin-top:8px">In OBS add a <b>Browser Source</b> with the first URL and it follows whichever preset is active; switch from here,
+      the tray icon, or a Stream Deck button (below). Changes you make here apply to running sources immediately.</div>
+  </div>
+
+  <div class="card">
+    <h2>Stream Deck / hotkey switching</h2>
+    <div class="muted" style="margin-bottom:10px">Each of these is a plain GET request that switches the active preset and returns <code>{"active": "…"}</code>.
+      In Stream Deck use an action that sends an HTTP GET in the background (the built-in <b>Website</b> action with
+      "Access in background" ticked, or an API plugin such as BarRaider's API Ninja). A preset can also be addressed by its number, e.g. <code>/api/switch/2</code>.</div>
+    <div class="row urlrow"><div class="lbl">Switch to this preset</div><div class="url" id="urlSwitch"></div><button data-copy="urlSwitch">Copy</button></div>
+    <div class="row urlrow"><div class="lbl">Next preset</div><div class="url" id="urlNext"></div><button data-copy="urlNext">Copy</button></div>
+    <div class="row urlrow"><div class="lbl">Previous preset</div><div class="url" id="urlPrev"></div><button data-copy="urlPrev">Copy</button></div>
+  </div>
+
+  <div class="card">
+    <h2>OBS Browser Source size</h2>
+    <div class="row">
+      <label class="f">Width<input type="number" id="srcW" min="100" max="8000"></label>
+      <label class="f">Height<input type="number" id="srcH" min="50" max="8000"></label>
+      <button id="useLargest">Use largest</button>
+      <button id="useThis">Use this preset's size</button>
+    </div>
+    <div class="muted" id="sizeInfo" style="margin-top:10px"></div>
+    <div class="muted" style="margin-top:8px">Type the width and height into your Browser Source's properties, then move and resize the source with OBS's handles as usual.
+      The overlay is pinned inside the source by the <b>Position</b> setting below, so switching presets never shifts it. A tight size gives a tight red box in OBS;
+      a bigger source (e.g. 1920×1080) lets you pin to a corner. To make it bigger, use the <b>Size</b> slider here rather than stretching the source in OBS, which blurs it.
+      The preview below is drawn at this size; the dashed line is the source's edge.</div>
+  </div>
+
+  <div class="card">
+    <h2>Preview</h2>
+    <div class="row" style="margin-bottom:10px">
+      <span class="muted">Background</span>
+      <div class="seg" id="bgSeg"><button data-bg="dark" class="on">Dark</button><button data-bg="check">Checker</button><button data-bg="green">Green</button></div>
+      <span class="muted">The preview reacts to your real input. <b>Drag the right edge of a key to resize it</b> (the rest of the overlay moves to fit); double-click an edge to reset that key.</span>
+    </div>
+    <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe></div>
+    <iframe id="mf" src="/?draft=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
+  </div>
+
+  <div class="card">
+    <h2>Keyboard</h2>
+    <div class="row">
+      <div class="seg" id="modeSeg">
+        <button data-mode="full">Full keyboard</button><button data-mode="custom">Pick keys</button><button data-mode="off">Hidden</button>
+      </div>
+      <span class="muted">Click a key to hide or show it. Click and drag to paint several.</span>
+    </div>
+    <div class="row" id="chips" style="margin-top:12px"></div>
+    <div id="editor"></div>
+  </div>
+
+  <div class="sectionNote">Settings apply to the selected preset, except the ones tagged <span class="scope">all presets</span>. Click a tag to switch that setting between all presets and just this preset.</div>
+  <div class="sections">
+
+    <div class="card">
+      <h2>Mouse</h2>
+      <div class="stack">
+        <label class="setting"><span class="name">Show mouse</span>
+          <span class="ctl"><select id="mouse"><option value="1">Shown</option><option value="0">Hidden</option></select></span></label>
+        <label class="setting"><span class="name">Movement sensitivity<small>How far the dot travels for a given amount of mouse movement.</small></span>
+          <span class="ctl"><input type="range" id="sens" min="0.2" max="3" step="0.1"><span class="val" id="sensV"></span></span></label>
+        <div class="setting"><div class="name"><div class="nameRow"><label for="swapSide">Mouse Button Invert</label><button type="button" class="scope" data-scope="swapSide" aria-pressed="true" title="Click to switch between all presets and just this preset">all presets</button></div><small>Swaps which side button is drawn as Mouse 4 and Mouse 5.</small></div>
+          <span class="ctl"><input type="checkbox" id="swapSide"></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Controller</h2>
+      <div class="stack">
+        <label class="setting"><span class="name">Controller style<small>The artwork to draw. Auto-detect picks one to match the connected controller.</small></span>
+          <span class="ctl"><select id="controller"><option value="auto">Auto-detect</option><option value="steam">Steam Controller</option><option value="xbox">Xbox</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="switch">Nintendo Switch</option><option value="switch2">Switch 2 Pro</option><option value="gamecube">GameCube</option></select></span></label>
+        <label class="setting"><span class="name">Show controller</span>
+          <span class="ctl"><select id="pad"><option value="auto">When connected</option><option value="on">Always</option><option value="off">Hidden</option></select></span></label>
+        <label class="setting"><span class="name">Trackpad click pressure<small>How hard you press a trackpad before it counts as a click.</small></span>
+          <span class="ctl"><input type="range" id="tpt" min="0.1" max="1" step="0.05"><span class="val" id="tptV"></span></span></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Appearance</h2>
+      <div class="stack">
+        <div class="setting"><div class="name"><div class="nameRow"><label for="theme">Theme</label><button type="button" class="scope" data-scope="theme" aria-pressed="true" title="Click to switch between all presets and just this preset">all presets</button></div><small id="themeDesc"></small></div>
+          <span class="ctl"><select id="theme"></select></span></div>
+        <div class="setting"><div class="name"><small id="themeDir">Add your own by dropping a theme folder into your themes folder.</small></div>
+          <span class="ctl"><button type="button" id="themeRefresh">Refresh</button><button type="button" id="themeOpen">Open themes folder</button></span></div>
+        <div class="setting"><div class="name"><div class="nameRow"><label for="accent">Highlight colour</label><button type="button" class="scope" data-scope="accent" aria-pressed="false" title="Click to switch between all presets and just this preset">this preset</button></div><small>Used for pressed keys, buttons and trackpad touches.</small></div>
+          <span class="ctl"><input type="color" id="accent"></span></div>
+        <div class="setting"><div class="name"><div class="nameRow"><label for="fill">Fill opacity</label><button type="button" class="scope" data-scope="fill" aria-pressed="true" title="Click to switch between all presets and just this preset">all presets</button></div><small>How solid the key, mouse and controller backgrounds are. 0 is see-through, 1 is solid.</small></div>
+          <span class="ctl"><input type="range" id="fill" min="0" max="1" step="0.05"><span class="val" id="fillV"></span></span></div>
+        <div class="setting"><div class="name"><div class="nameRow"><label for="opacity">Overall opacity</label><button type="button" class="scope" data-scope="opacity" aria-pressed="true" title="Click to switch between all presets and just this preset">all presets</button></div><small>Fades everything, including labels and highlights.</small></div>
+          <span class="ctl"><input type="range" id="opacity" min="0.1" max="1" step="0.05"><span class="val" id="opacityV"></span></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Position &amp; size</h2>
+      <div class="stack">
+        <div class="setting"><span class="name">Position in source<small>Where the overlay sits inside the OBS Browser Source.</small></span>
+          <span class="ctl"><div class="agrid" id="agrid"></div></span></div>
+        <label class="setting"><span class="name">Size<small>Scales the overlay and keeps it sharp. Better than stretching the source in OBS.</small></span>
+          <span class="ctl"><input type="range" id="scale" min="0.5" max="2" step="0.05"><span class="val" id="scaleV"></span></span></label>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="keyboard.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const ALL_VKS = KB.ALL.map(k => k.vk);
+let presets = [];      // as last saved
+let active = null;     // name of the active preset
+let settings = { swapSide: false, opacity: 1, fill: .8, accent: '#38bdf8', scope: { swapSide: true, opacity: false, fill: false, accent: false } };   // shared values + which settings are shared   // hardware settings shared by all presets (saved separately from presets)
+let cur = null;        // working copy of the selected preset
+let origName = null;   // name it was loaded/saved under (for renames)
+let saveTimer = null;
+let resetChip = null;          // the "Reset key sizes" chip (shown only when a preset has custom key sizes)
+
+const api = (path, opts) => fetch('/api/presets' + path, opts);
+const clone = o => JSON.parse(JSON.stringify(o));
+const status = (msg, err) => { $('status').textContent = msg; $('status').className = err ? 'err' : ''; };
+
+async function load(selectName) {
+  const data = await (await api('')).json();
+  presets = data.presets; active = data.active; settings = data.settings;
+  renderList();
+  select(presets.find(p => p.name === selectName) || presets[0]);
+  measureAll();
+}
+function renderList() {
+  const ul = $('list'); ul.textContent = '';
+  for (const p of presets) {
+    const li = document.createElement('li');
+    li.textContent = p.name; li.className = cur && p.name === origName ? 'sel' : '';
+    if (p.name === active) { const b = document.createElement('span'); b.className = 'live'; b.textContent = 'active'; li.appendChild(b); }
+    li.onclick = () => flushThen(() => select(p));
+    ul.appendChild(li);
+  }
+}
+function select(p) {
+  cur = clone(p); origName = p.name;
+  renderList(); syncControls(); renderEditor(); renderUrl(); sendPreview(); status('');
+}
+
+// ---------------------------------------------------------------- saving
+function schedSave() { status('Saving…'); clearTimeout(saveTimer); saveTimer = setTimeout(save, 350); }
+async function flushThen(fn) { if (saveTimer) { clearTimeout(saveTimer); await save(); } fn(); }
+async function save() {
+  saveTimer = null;
+  const from = origName !== cur.name ? origName : null;
+  const r = await api('/' + encodeURIComponent(cur.name) + (from ? '?from=' + encodeURIComponent(from) : ''),
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cur) });
+  if (!r.ok) { status(await r.text() || 'Could not save', true); return; }
+  const saved = await r.json();
+  const i = presets.findIndex(p => p.name === origName);
+  if (i >= 0) presets[i] = saved; else presets.push(saved);
+  if (active === from) active = saved.name;   // the server keeps the active preset through a rename
+  origName = saved.name; renderList(); renderUrl(); status('Saved ✓');
+}
+function changed() { sendPreview(); schedSave(); queueMeasure(); }
+
+// ---------------------------------------------------------------- controls
+function syncControls() {
+  $('name').value = cur.name;
+  $('mouse').value = cur.mouse ? '1' : '0';
+  $('controller').value = cur.controller || 'auto';
+  $('pad').value = cur.pad;
+  $('accent').value = valueOf('accent');
+  document.querySelectorAll('#agrid button').forEach(b => b.classList.toggle('on', b.dataset.a === cur.align));
+  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt']) {
+    const v = SHARED.includes(k) ? valueOf(k) : cur[k];
+    $(k).value = v; $(k + 'V').textContent = fmt(v);
+  }
+  $('swapSide').checked = !!valueOf('swapSide');
+  syncTheme();
+  document.querySelectorAll('button.scope').forEach(b => {
+    const on = !!settings.scope[b.dataset.scope];
+    b.setAttribute('aria-pressed', on); b.textContent = on ? 'all presets' : 'this preset';
+  });
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === cur.keyboard.mode));
+  $('editor').classList.toggle('disabled', cur.keyboard.mode === 'off');
+}
+$('name').addEventListener('input', e => { cur.name = e.target.value.trim() || cur.name; renderUrl(); schedSave(); });
+$('controller').onchange = e => { cur.controller = e.target.value; changed(); };
+$('mouse').onchange = e => { cur.mouse = e.target.value === '1'; changed(); };
+$('pad').onchange = e => { cur.pad = e.target.value; changed(); };
+let settingsTimer = null;
+function saveSettings() {                    // settings that apply to every preset are saved separately from presets
+  status('Saving…'); clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(async () => {
+    const r = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
+    status(r.ok ? 'Saved ✓' : 'Could not save', !r.ok);
+  }, 300);
+}
+$('swapSide').onchange = e => setValue('swapSide', e.target.checked);
+$('accent').oninput = e => setValue('accent', e.target.value);
+// A setting tagged "all presets" lives in `settings` (one value for every preset); otherwise in the preset itself.
+const SHARED = ['opacity', 'fill'];
+const valueOf = k => settings.scope[k] ? settings[k] : cur[k];
+function setValue(k, v) {
+  if (settings.scope[k]) { settings[k] = v; sendPreview(); saveSettings(); }
+  else { cur[k] = v; changed(); }
+}
+const fmt = v => (+v).toFixed(2).replace(/0$/, '');
+for (const k of ['scale', 'sens', 'tpt']) $(k).oninput = e => {
+  cur[k] = parseFloat(e.target.value); $(k + 'V').textContent = fmt(cur[k]); changed();
+};
+for (const k of SHARED) $(k).oninput = e => { const v = parseFloat(e.target.value); $(k + 'V').textContent = fmt(v); setValue(k, v); };
+document.querySelectorAll('button.scope').forEach(b => b.onclick = () => {
+  const k = b.dataset.scope;
+  if (!settings.scope[k]) settings[k] = cur[k];       // going shared: start from what you're looking at now
+  settings.scope[k] = !settings.scope[k];             // going per-preset: each preset's own stored value comes back
+  syncControls(); sendPreview(); saveSettings();
+});
+document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => {
+  const mode = b.dataset.mode;
+  if (mode === 'custom' && cur.keyboard.mode === 'full') cur.keyboard.keys = [...ALL_VKS];
+  if (mode === 'custom' && cur.keyboard.mode === 'off' && !cur.keyboard.keys.length) cur.keyboard.keys = [...ALL_VKS];
+  cur.keyboard.mode = mode; syncControls(); renderEditor(); changed();
+});
+document.querySelectorAll('#bgSeg button').forEach(b => b.onclick = () => {
+  $('pvbox').className = b.dataset.bg;
+  document.querySelectorAll('#bgSeg button').forEach(x => x.classList.toggle('on', x === b));
+});
+
+// ---------------------------------------------------------------- keyboard editor
+const visibleSet = () => cur.keyboard.mode === 'full' ? new Set(ALL_VKS) : new Set(cur.keyboard.keys);
+function setVisible(set) { cur.keyboard.keys = [...set].sort((a, b) => a - b); cur.keyboard.mode = 'custom'; syncControls(); renderEditor(); changed(); }
+function renderEditor() {
+  KB.render($('editor'), { visible: cur.keyboard.mode === 'off' ? new Set() : visibleSet(), editor: true, sizes: cur.keyboard.sizes });
+  if (resetChip) resetChip.hidden = !Object.keys(cur.keyboard.sizes || {}).length;
+}
+// Click a key to toggle; hold the button and drag across keys to paint them to the same state.
+let paint = null, lastPt = null;
+$('editor').addEventListener('pointerdown', e => {
+  const el = e.target.closest('.key'); if (!el) return;
+  paint = !visibleSet().has(+el.dataset.vk);
+  lastPt = [e.clientX, e.clientY];
+  paintKey(+el.dataset.vk);
+  e.preventDefault();
+});
+// Fast drags skip keys between pointer events, so walk the straight line from the last point to this one.
+addEventListener('pointermove', e => {
+  if (paint === null) return;
+  if (!(e.buttons & 1)) { paint = null; return; }
+  const [x0, y0] = lastPt, dx = e.clientX - x0, dy = e.clientY - y0;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 6));
+  for (let i = 1; i <= steps; i++) {
+    const el = document.elementFromPoint(x0 + dx * i / steps, y0 + dy * i / steps);
+    const key = el && el.closest && el.closest('#editor .key');
+    if (key) paintKey(+key.dataset.vk);
+  }
+  lastPt = [e.clientX, e.clientY];
+});
+addEventListener('pointerup', () => { paint = null; });
+function paintKey(vk) {
+  const vis = visibleSet();
+  if (vis.has(vk) === paint) return;
+  paint ? vis.add(vk) : vis.delete(vk);
+  setVisible(vis);
+}
+// quick-select chips
+const chips = $('chips');
+const chip = (label, fn) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = label; b.onclick = fn; chips.appendChild(b); return b; };
+chip('All', () => setVisible(new Set(ALL_VKS)));
+chip('None', () => setVisible(new Set()));
+chip('Invert', () => { const v = visibleSet(); setVisible(new Set(ALL_VKS.filter(k => !v.has(k)))); });
+for (const [name, vks] of Object.entries(KB.GROUPS)) chip(name, () => {
+  const v = visibleSet(), allOn = vks.every(k => v.has(k));
+  vks.forEach(k => allOn ? v.delete(k) : v.add(k)); setVisible(v);
+});
+
+// Resizing keys: the preview posts a new width (or null = reset) when you finish dragging a key's edge.
+resetChip = chip('Reset key sizes', () => { cur.keyboard.sizes = {}; renderEditor(); changed(); });
+resetChip.hidden = true;
+addEventListener('message', e => {
+  if (e.origin !== location.origin || e.source !== $('pv').contentWindow || !e.data || e.data.type !== 'keysize') return;
+  const sizes = cur.keyboard.sizes = cur.keyboard.sizes || {};
+  if (e.data.w == null) delete sizes[e.data.vk]; else sizes[e.data.vk] = e.data.w;
+  renderEditor(); changed();
+});
+
+// ---------------------------------------------------------------- url, preview, list actions
+// ---------------------------------------------------------------- position + Browser Source size
+// Position-in-source picker (top/middle/bottom x left/centre/right)
+(() => {
+  const g = $('agrid');
+  for (const v of ['t', 'm', 'b']) for (const h of ['l', 'c', 'r']) {
+    const b = document.createElement('button'); b.dataset.a = v + h;
+    b.title = { t: 'Top', m: 'Middle', b: 'Bottom' }[v] + ' ' + { l: 'left', c: 'centre', r: 'right' }[h];
+    b.onclick = () => { cur.align = v + h; syncControls(); changed(); };
+    g.appendChild(b);
+  }
+})();
+
+// A hidden iframe renders each preset and reports the pixel size it needs.
+const mf = $('mf'); let mfReady = false, tokenN = 0, measureTimer = null;
+const waiting = new Map(), sizes = {};            // sizes: preset name -> {w, h}
+mf.addEventListener('load', () => { mfReady = true; measureAll(); });
+addEventListener('message', e => {
+  if (e.origin !== location.origin || !e.data || e.data.type !== 'size') return;
+  const done = waiting.get(e.data.token); if (done) { waiting.delete(e.data.token); done(e.data); }
+});
+let measureChain = Promise.resolve();
+function measure(preset) {
+  return new Promise(res => {
+    if (!mfReady) return res(null);
+    const token = ++tokenN; waiting.set(token, res);
+    mf.contentWindow.postMessage({ type: 'cfg', preset, settings, token }, location.origin);
+    setTimeout(() => { if (waiting.delete(token)) res(null); }, 1500);
+  });
+}
+function queueMeasure(preset) {            // no argument = re-measure the preset being edited (debounced)
+  if (!preset) { clearTimeout(measureTimer); measureTimer = setTimeout(() => queueMeasure(cur), 200); return; }
+  const snap = clone(preset);
+  measureChain = measureChain.then(async () => { const m = await measure(snap); if (m) { sizes[snap.name] = { w: m.w, h: m.h }; renderSize(); } });
+}
+function measureAll() { presets.forEach(p => queueMeasure(cur && p.name === origName ? cur : p)); }
+
+const largest = () => {
+  let w = 0, h = 0;
+  for (const n of new Set([...presets.map(p => p.name), cur && cur.name])) { const s = sizes[n]; if (s) { w = Math.max(w, s.w); h = Math.max(h, s.h); } }
+  return [w, h];
+};
+// The size you intend to use in OBS. Until you type one, it follows the largest preset.
+let custom = null;
+try { custom = JSON.parse(localStorage.getItem('srcSize')); } catch {}
+function srcSize() {
+  if (custom) return custom;
+  const [w, h] = largest(); return [Math.max(w, 400), Math.max(h, 120)];
+}
+function renderSize() {
+  const t = cur && sizes[cur.name], [lw, lh] = largest();
+  $('sizeInfo').innerHTML = (t ? `This preset needs <b>${t.w} × ${t.h}</b>. ` : '') +
+    (lw ? `The largest preset needs <b>${lw} × ${lh}</b>, so use that for a source that follows the active preset.` : 'Measuring…');
+  const [w, h] = srcSize(); $('srcW').value = w; $('srcH').value = h;
+  fitPreview();
+}
+function setCustom() {
+  const w = Math.max(100, parseInt($('srcW').value) || 0), h = Math.max(50, parseInt($('srcH').value) || 0);
+  custom = [w, h]; try { localStorage.setItem('srcSize', JSON.stringify(custom)); } catch {}
+  fitPreview();
+}
+$('srcW').oninput = $('srcH').oninput = setCustom;
+$('useLargest').onclick = () => { custom = null; try { localStorage.removeItem('srcSize'); } catch {} renderSize(); };
+$('useThis').onclick = () => { const t = sizes[cur.name]; if (t) { $('srcW').value = t.w; $('srcH').value = t.h; setCustom(); } };
+
+const urlFor = name => `${location.origin}/?preset=${encodeURIComponent(name)}`;
+function renderUrl() {
+  $('urlBase').textContent = `${location.origin}/`;
+  $('url').textContent = urlFor(cur.name);
+  $('urlSwitch').textContent = `${location.origin}/api/switch/${encodeURIComponent(cur.name)}`;
+  $('urlNext').textContent = `${location.origin}/api/next`;
+  $('urlPrev').textContent = `${location.origin}/api/prev`;
+  const isActive = cur.name === active;
+  $('btnLive').disabled = isActive;
+  $('btnLive').textContent = isActive ? 'This is the active preset' : 'Make this the active preset';
+  $('liveNote').textContent = isActive ? 'The base OBS URL is showing this preset.' : `The base OBS URL currently shows "${active}".`;
+}
+document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+  const el = $(b.dataset.copy);
+  try { await navigator.clipboard.writeText(el.textContent); status('Copied ✓'); }
+  catch { const r = document.createRange(); r.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(r); status('Press Ctrl+C to copy'); }
+});
+$('btnLive').onclick = () => flushThen(async () => {
+  const r = await fetch('/api/switch/' + encodeURIComponent(origName));
+  if (!r.ok) { status(await r.text(), true); return; }
+  active = (await r.json()).active; renderList(); renderUrl(); status('Active preset changed ✓');
+});
+function sendPreview() { const w = $('pv').contentWindow; if (w) w.postMessage({ type: 'cfg', preset: cur, settings }, location.origin); }
+$('pv').addEventListener('load', sendPreview);
+// The preview iframe is laid out at a fixed logical width and scaled to fit the card.
+function fitPreview() {
+  const box = $('pvbox'), [W, H] = srcSize(), s = Math.min(1, box.clientWidth / W);
+  const pv = $('pv');
+  pv.style.width = W + 'px'; pv.style.height = H + 'px'; pv.style.transform = `scale(${s})`;
+  box.style.height = Math.max(60, H * s) + 'px';
+}
+addEventListener('resize', fitPreview); fitPreview();
+
+async function createPreset(base, name) {
+  const taken = new Set(presets.map(p => p.name));
+  let n = name, i = 2; while (taken.has(n)) n = `${name} ${i++}`;
+  const r = await api('/' + encodeURIComponent(n), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base) });
+  if (!r.ok) { status(await r.text(), true); return; }
+  await load(n);
+}
+$('btnNew').onclick = () => flushThen(() => createPreset({ keyboard: { mode: 'full', keys: [] }, mouse: true, pad: 'auto' }, 'New preset'));
+$('btnDup').onclick = () => flushThen(() => createPreset(cur, cur.name + ' copy'));
+$('btnDel').onclick = async () => {
+  if (presets.length < 2) { status("Can't delete the last preset", true); return; }
+  if (!confirm(`Delete preset "${origName}"? Any OBS source using it will fall back to the first preset.`)) return;
+  clearTimeout(saveTimer); saveTimer = null;
+  await api('/' + encodeURIComponent(origName), { method: 'DELETE' });
+  await load();
+};
+
+// ---------------------------------------------------------------- themes
+let themes = [];
+async function loadThemes() {
+  const d = await (await fetch('/api/themes')).json();
+  themes = d.themes; $('themeDir').textContent = 'Your themes folder: ' + d.dir;
+  renderThemeSelect();
+}
+function renderThemeSelect() {
+  if (!cur) return;                         // the preset hasn't loaded yet; syncControls calls this again once it has
+  const sel = $('theme'), want = valueOf('theme');
+  sel.textContent = '';
+  for (const t of themes) sel.add(new Option(t.name + (t.builtin ? '' : '  (custom)'), t.id));
+  if (!themes.some(t => t.id === want)) sel.add(new Option(`${want} (not found)`, want));
+  sel.value = want; showThemeInfo();
+}
+function showThemeInfo() {
+  const t = themes.find(x => x.id === $('theme').value);
+  $('themeDesc').textContent = t ? [t.author && `by ${t.author}`, t.description].filter(Boolean).join(' · ') : 'Not installed, so the overlay falls back to Classic.';
+}
+function syncTheme() { if (themes.length) renderThemeSelect(); }
+$('theme').onchange = e => { setValue('theme', e.target.value); showThemeInfo(); };
+$('themeRefresh').onclick = async () => {        // re-scan the folders, and reload the preview so edits to a theme's files show up
+  await loadThemes(); $('pv').src = $('pv').src; status('Themes refreshed ✓');
+};
+$('themeOpen').onclick = async () => { const r = await fetch('/api/themes/open', { method: 'POST' }); status(r.ok ? 'Opened your themes folder' : 'Could not open the folder', !r.ok); };
+loadThemes();
+
+load(new URLSearchParams(location.search).get('preset'));
+</script>
+</body>
+</html>
