@@ -1,0 +1,25 @@
+/* Theme template. Copy this folder into your themes folder, rename it, and edit. See docs/THEMES.md for the full list of
+   things you can style. Delete whatever you don't change; the base look fills in the rest. */
+
+:root {
+  --key-bg: rgba(20, 24, 33, var(--fill));     /* key background; keep var(--fill) so the Fill opacity slider still works */
+  --key-border: rgba(255, 255, 255, .18);
+  --key-fg: #e8edf5;                           /* key text */
+  /* --accent is the user's highlight colour: use it for anything "pressed" or "active" */
+}
+
+/* ---- keyboard ---- */
+.key {
+  border-radius: 7px;
+  /* font-family: "My Font", sans-serif;      (add the font file to this folder and an @font-face rule) */
+}
+.key.on {                                      /* a key that is currently held down */
+  background: var(--accent);
+  color: #06121a;
+}
+
+/* ---- mouse ---- */
+#mouseSvg .shape { stroke-width: 2; }          /* the mouse body */
+#mouseSvg .hit.on { fill: var(--accent); }     /* a pressed mouse button */
+
+/* ---- controller ---- */

@@ -1,0 +1,28 @@
+# Only what is needed to run and build the program is tracked: the code, the overlay, lib/, the build files, the workflow,
+# the original controller artwork (assets/controllers/), and the README with the theme docs it points to.
+# Everything below stays on the author's PC.
+
+# build output and local environment
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+InputOverlay.spec
+
+# release packages and generated documents
+*.zip
+docs/*.pdf
+
+# the app icon is redrawn by appicon.py during the build; the art tools and the testing guide stay local
+assets/icon.ico
+tools/
+docs/TESTING_README.html
+run.bat
+
+# promo art and review screenshots
+promo/
+screenshots/
+
+# editor / tool state
+.claude/

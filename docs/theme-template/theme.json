@@ -1,0 +1,7 @@
+{
+  "name": "My Theme",
+  "author": "Your name",
+  "description": "One line about what it looks like.",
+  "version": "1.0",
+  "css": "theme.css"
+}

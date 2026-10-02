@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Input Overlay</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --accent: #38bdf8;
+    --fill: .8;                                   /* background opacity of keys, mouse and controller (preset: fill) */
+    --key-bg: rgba(20, 24, 33, var(--fill));
+    --key-border: rgba(255, 255, 255, .18);
+    --key-fg: #e8edf5;
+    --unit: 44px;
+    --gap: 4px;
+  }
+  html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; display: flex; }          /* alignment inside the Browser Source */
+  #root { display: flex; align-items: flex-end; gap: 28px; padding: 8px; width: max-content; flex: none; }
+  .hidden { display: none !important; }
+
+  /* ---- keyboard ---- */
+  .key {
+    flex: none; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+    background: var(--key-bg); border: 1px solid var(--key-border); border-radius: 7px;
+    color: var(--key-fg); font-size: 14px; font-weight: 600; transition: background .06s, transform .06s;
+  }
+  :where(.key[data-len="4"], .key[data-len="5"], .key[data-len="6"]) { font-size: 11px; }
+  .key.on { background: var(--accent); border-color: #fff; color: #06121a; transform: translateY(2px); }
+
+  /* ---- mouse ---- */
+  .mouse-wrap { position: relative; width: 143px; height: 221px; }
+  .mouse-wrap > * { position: absolute; left: 0; top: 0; }
+  svg .shape { fill: var(--key-bg); stroke: var(--key-border); stroke-width: 2; }
+  svg .hit { fill: transparent; stroke: var(--key-border); stroke-width: 1.5; transition: fill .06s; }
+  svg .hit.on { fill: var(--accent); stroke: #fff; }
+  svg .lbl { fill: var(--key-fg); font: 600 11px "Segoe UI", sans-serif; text-anchor: middle; pointer-events: none; }
+  #motion { width: 143px; height: 221px; pointer-events: none; }
+
+  #dbg { position: fixed; left: 8px; bottom: 8px; margin: 0; padding: 6px 8px; font: 12px/1.4 Consolas, monospace;
+         color: #fff; background: rgba(0,0,0,.7); border-radius: 6px; white-space: pre; }
+
+  /* ---- controller ---- */
+  #pad { width: 400px; }
+  #padSvg { width: 100%; height: auto; display: block; overflow: visible; }
+
+  #layerSkin .lbl { font: 700 var(--size, 30px) "Segoe UI", sans-serif; text-anchor: middle; dominant-baseline: central; fill: #14171d; pointer-events: none; }
+
+  #kbHandle { position: fixed; display: none; width: 6px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 50; }
+
+  /* vector controller skins (img/pad-*.svg): parts are tinted via --part, set from script */
+  #vecSkin .body { fill: rgba(20, 24, 33, var(--fill)); stroke: rgba(255,255,255,.16); stroke-width: 3; }
+  #vecSkin .well { fill: rgba(0,0,0,.35); stroke: rgba(255,255,255,.10); stroke-width: 2; }
+  #vecSkin .fill { fill: var(--part, #f2f5fa); }
+  #vecSkin .ring { fill: none; stroke: rgba(20,23,29,.35); stroke-width: 4; }
+  #vecSkin .stroke { fill: none; stroke: #14171d; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+  #vecSkin .lbl { font: 800 30px "Segoe UI", sans-serif; text-anchor: middle; dominant-baseline: central; fill: #14171d; pointer-events: none; }
+  #vecSkin .finger { fill: #fff; stroke: var(--accent); stroke-width: 5; }
+</style>
+</head>
+<body>
+<!-- Utility filters themes can use (see docs/THEMES.md): pixelate-N turns what it is applied to into N-unit blocks.
+     Anchored at the origin of the element's own coordinate space, which the sampling grid needs. It samples a square of N/2 units in the
+     middle of each block and grows it by N/4 on every side. The sample must stay well over one screen pixel at any zoom or the browser
+     rounds it to nothing and the whole picture disappears, which is why it is N/2 and not a couple of units. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="pixelate-4" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="1" y="1" width="2" height="2"/><feComposite width="4" height="4"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="1"/></filter>
+  <filter id="pixelate-6" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="1.5" y="1.5" width="3" height="3"/><feComposite width="6" height="6"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="1.5"/></filter>
+  <filter id="pixelate-8" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="2" y="2" width="4" height="4"/><feComposite width="8" height="8"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="2"/></filter>
+  <filter id="pixelate-10" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="2.5" y="2.5" width="5" height="5"/><feComposite width="10" height="10"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="2.5"/></filter>
+</defs></svg>
+<div id="stage"><div id="root">
+  <div id="kb" class="kb-main"></div>
+  <div id="mouse" class="mouse-wrap">
+    <svg id="mouseSvg" width="143" height="221" viewBox="0 0 110 170">
+      <path class="shape" d="M55 6 C25 6 12 28 12 60 L12 110 C12 146 30 164 55 164 C80 164 98 146 98 110 L98 60 C98 28 85 6 55 6Z"/>
+      <path class="hit" data-m="left"  d="M55 6 C28 6 14 26 13 58 L13 70 L52 70 L52 6Z"/>
+      <path class="hit" data-m="right" d="M55 6 C82 6 96 26 97 58 L97 70 L58 70 L58 6Z"/>
+      <rect class="hit" data-m="middle" x="49" y="22" width="12" height="30" rx="6"/>
+      <rect class="hit" data-m="x1" x="3" y="108" width="10" height="22" rx="3"/>
+      <rect class="hit" data-m="x2" x="3" y="82" width="10" height="22" rx="3"/>
+      <path id="scrollUp" class="hit" d="M55 12 l-9 8 h18z" style="display:none"/>
+      <text class="lbl" x="33" y="48">L</text><text class="lbl" x="77" y="48">R</text>
+      <text id="scrollTxt" class="lbl" x="55" y="100"></text>
+    </svg>
+    <canvas id="motion" width="286" height="442"></canvas>
+  </div>
+  <div id="pad" class="hidden">
+    <svg id="padSvg" viewBox="20 60 984 870">
+      <defs>
+        <!-- invert the (dark-on-light) icon artwork -->
+        <filter id="inv" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">
+          <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+        </filter>
+        <!-- recolour a part's silhouette with the accent colour -->
+        <filter id="tint" color-interpolation-filters="sRGB">
+          <feFlood id="tintFlood" flood-color="#38bdf8"/><feComposite in2="SourceAlpha" operator="in"/>
+        </filter>
+      </defs>
+      <g id="layerSkin" class="hidden">
+        <g id="icon" filter="url(#inv)"></g>   <!-- the artwork, inverted -->
+        <g id="fx"></g>                        <!-- recoloured copies of the parts that are active -->
+        <g id="labels"></g>                    <!-- text labels drawn by the overlay (on top, so they stay readable when a part lights up) -->
+      </g>
+      <g id="vecSkin" class="hidden"></g>
+    </svg>
+  </div>
+</div>
+
+</div>
+<script src="keyboard.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const root = document.getElementById('root');
+const show = (id, on) => document.getElementById(id).classList.toggle('hidden', !on);
+const draft = q.has('draft');                 // settings-page preview: config arrives by postMessage
+const dbg = q.get('debug') === '1';
+if (dbg) { const pre = document.createElement('pre'); pre.id = 'dbg'; document.body.appendChild(pre); }
+
+// A preset (see config.py) decides what is shown. URL parameters override it for quick tweaks:
+//   kb=full|compact|off  mouse=0|1  pad=0|1|auto  accent=<hex or colour name>  scale  sens  tpt  tprot
+const DEFAULTS = { keyboard: { mode: 'full', keys: [], sizes: {} }, mouse: true, pad: 'auto', align: 'mc', accent: '#38bdf8',
+                   scale: 1, opacity: 1, fill: .8, swapSide: false, controller: 'auto', theme: 'default', sens: 1, tpt: .5, tprot: 9 };
+const normalize = base => ({ ...DEFAULTS, ...base, keyboard: { ...DEFAULTS.keyboard, ...(base && base.keyboard) } });
+function withOverrides(c) {
+  const kb = q.get('kb');
+  if (kb === 'off' || kb === 'full') c.keyboard = { mode: kb, keys: [] };
+  else if (kb === 'compact') c.keyboard = { mode: 'custom', keys: KB.GROUPS['WASD + common'] };
+  if (q.has('mouse')) c.mouse = q.get('mouse') !== '0';
+  const pad = q.get('pad');
+  if (pad === '0' || pad === 'off') c.pad = 'off'; else if (pad === '1' || pad === 'on') c.pad = 'on'; else if (pad === 'auto') c.pad = 'auto';
+  if (q.get('theme')) c.theme = q.get('theme');
+  if (q.get('controller')) c.controller = q.get('controller') === 'playstation' ? 'ps5' : q.get('controller');          // auto | steam | xbox | playstation | switch | gamecube
+  if (/^[tmb][lcr]$/.test(q.get('align') || '')) c.align = q.get('align');
+  const acc = q.get('accent');
+  if (acc) c.accent = /^[0-9a-f]{3,8}$/i.test(acc) ? '#' + acc : acc;
+  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'tprot']) if (q.has(k)) c[k] = parseFloat(q.get(k));
+  return c;
+}
+
+let cfg = normalize();
+let settings = { swapSide: false, opacity: 1, fill: .8, theme: 'default', accent: '#38bdf8', scope: { swapSide: true, opacity: false, fill: false, theme: true, accent: false } };   // shared values + which settings are shared        // hardware settings shared by every preset
+const held = {};                          // mouse buttons currently down, by event name
+let keyEls = new Map();
+const down = new Set();                       // keys currently held, so a re-render keeps them lit
+let padConnected = false, padLoading = false, buildId = null;
+
+// Settings marked "all presets" use the shared value instead of the preset's own. A ?opacity= / ?fill= in the URL still wins.
+const isShared = k => !!(settings.scope && settings.scope[k]);
+function effective(c) {
+  const e = { ...c };
+  for (const k of ['opacity', 'fill', 'theme', 'accent']) if (isShared(k) && !q.has(k) && settings[k] !== undefined) e[k] = settings[k];
+  return e;
+}
+function applyConfig(c) {
+  c = cfg = effective(c);
+  applyTheme(c.theme || 'default');
+  document.documentElement.style.setProperty('--accent', c.accent);
+  document.getElementById('tintFlood').setAttribute('flood-color', c.accent);
+  root.style.zoom = c.scale;
+  root.style.opacity = c.opacity;
+  document.documentElement.style.setProperty('--fill', c.fill);
+  for (const n of Object.keys(held)) setMouseButton(n, held[n]);     // re-light held buttons if the invert setting changed
+  applyBodyFill();
+  const st = document.getElementById('stage').style;
+  st.alignItems = { t: 'flex-start', m: 'center', b: 'flex-end' }[c.align[0]];
+  st.justifyContent = { l: 'flex-start', c: 'center', r: 'flex-end' }[c.align[1]];
+  const kbOn = c.keyboard.mode !== 'off';
+  show('kb', kbOn);
+  if (kbOn) renderKeyboard();
+  show('mouse', c.mouse);
+  if (c.pad !== 'off') syncSkin();
+  pads.forEach(t => t.g.setAttribute('transform', padTransform(t)));
+  updatePadVisibility();
+}
+function updatePadVisibility() { show('pad', cfg.pad === 'on' || (cfg.pad === 'auto' && (padConnected || draft))); }
+
+// ---------------------------------------------------------------- keyboard
+function renderKeyboard() {
+  const k = cfg.keyboard;
+  keyEls = KB.render(document.getElementById('kb'), { visible: k.mode === 'custom' ? new Set(k.keys) : null, sizes: k.sizes });
+  for (const vk of [...down]) setKey(vk, 1);
+}
+function setKey(vk, isDown) {
+  if (isDown) down.add(vk); else down.delete(vk);
+  for (const c of KB.GENERIC[vk] || [vk]) (keyEls.get(c) || []).forEach(el => el.classList.toggle('on', !!isDown));
+}
+
+// ---------------------------------------------------------------- mouse
+// Some mice report the two side buttons the other way round, so Settings can swap them.
+const swapSideOn = () => isShared('swapSide') ? !!settings.swapSide : !!cfg.swapSide;
+function setMouseButton(name, isDown) {
+  held[name] = isDown;
+  for (const n of ['left', 'right', 'middle', 'x1', 'x2']) {
+    const shown = swapSideOn() ? { x1: 'x2', x2: 'x1' }[n] || n : n;     // which drawn button this event lights
+    if (mouseEls[shown]) mouseEls[shown].classList.toggle('on', !!held[n]);
+  }
+}
+const mouseEls = {};
+document.querySelectorAll('[data-m]').forEach(el => mouseEls[el.dataset.m] = el);
+const scrollTxt = document.getElementById('scrollTxt');
+let scrollTimer;
+function onScroll(dy) {
+  scrollTxt.textContent = dy > 0 ? '▲' : '▼';
+  mouseEls.middle.classList.add('on');
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => { scrollTxt.textContent = ''; mouseEls.middle.classList.remove('on'); }, 160);
+}
+
+const cv = document.getElementById('motion'), cx = cv.getContext('2d');
+// Drawn in the mouse SVG's 110x170 coordinate space, on the palm area below the buttons.
+cx.scale(cv.width / 110, cv.height / 170);
+const CX = 55, CY = 112, LIM = 30, trail = [];
+let px = 0, py = 0;
+function addMotion(dx, dy) {
+  px += dx * 0.3 * cfg.sens; py += dy * 0.3 * cfg.sens;
+  const m = Math.hypot(px, py);
+  if (m > LIM) { px *= LIM / m; py *= LIM / m; }
+}
+function setMotion(x, y) { px = x; py = y; }      // for demos and screenshots
+function drawMotion() {
+  px *= 0.9; py *= 0.9;
+  trail.push([px, py]); if (trail.length > 36) trail.shift();
+  cx.clearRect(0, 0, 110, 170);
+  const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#38bdf8';
+  cx.strokeStyle = acc; cx.lineCap = 'round';
+  for (let i = 1; i < trail.length; i++) {
+    cx.globalAlpha = i / trail.length * .7; cx.lineWidth = 1 + i / trail.length * 3;
+    cx.beginPath(); cx.moveTo(CX + trail[i - 1][0], CY + trail[i - 1][1]); cx.lineTo(CX + trail[i][0], CY + trail[i][1]); cx.stroke();
+  }
+  cx.globalAlpha = 1; cx.fillStyle = acc;
+  cx.beginPath(); cx.arc(CX + px, CY + py, 5, 0, 6.2832); cx.fill();
+  requestAnimationFrame(drawMotion);
+}
+drawMotion();
+
+// ---------------------------------------------------------------- controller artwork
+const NS = 'http://www.w3.org/2000/svg';
+const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+const fx = document.getElementById('fx'), icon = document.getElementById('icon');
+const padSvg = document.getElementById('padSvg'), layerSkin = document.getElementById('layerSkin'), vecSkin = document.getElementById('vecSkin');
+const TRAIL = 14;
+
+// Layered skins are one SVG with a named group per part (see img/steam-controller.svg and img/xbox-controller.svg). The artwork is
+// inverted for the overlay, and a recoloured copy of a part is faded in when its input is active. This table says which group
+// is which input; a theme can ship its own file with the same group names.
+const LAYERED = {
+  steam: {
+    buttons: [['south', 'A-Button'], ['east', 'B-Button'], ['west', 'X-Button'], ['north', 'Y-Button'],
+              ['up', 'D-Pad-Up'], ['down', 'D-Pad-Down'], ['left', 'D-Pad-Left'], ['right', 'D-Pad-Right'],
+              ['back', 'Select-Button'], ['start', 'Menu---Pause-Button'], ['guide', 'Steam-Button'], ['misc1', 'Triple-Dot-Button'],
+              ['lb', 'Bumper--L-'], ['rb', 'Bumper--R-'],
+              ['l4', 'Back-Button--L4-'], ['l5', 'Back-Button--L5-'], ['r4', 'Back-Button--R4-'], ['r5', 'Back-Button--R5-']],
+    // The artwork's own labels on these buttons are hidden and replaced by text drawn here, at the same spot: it stays visible when the
+    // button lights up and can use a theme's font.
+    labels: { l4: 'L4', l5: 'L5', r4: 'R4', r5: 'R5' },
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    sticks: { l: 'Thumbstick--L-', r: 'Thumbstick--R-', travel: 28 },
+    trackpads: ['Trackpad--L-', 'Trackpad--R-'],
+  },
+  xbox: {
+    buttons: [['south', 'A-Button'], ['east', 'B-Button'], ['west', 'X-Button'], ['north', 'Y-Button'],
+              ['up', 'D-Pad-Up'], ['down', 'D-Pad-Down'], ['left', 'D-Pad-Left'], ['right', 'D-Pad-Right'],
+              ['back', 'Select-Button'], ['start', 'Start-Button'], ['guide', 'Xbox-Home-Button'],
+              ['lb', 'Bumper--L-'], ['rb', 'Bumper--R-']],
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    sticks: { l: 'Thumbstick--L-', r: 'Thumbstick--R-', travel: 14 },
+  },
+  // PlayStation 4 (DualShock 4) and 5 (DualSense). Face buttons are positional: Cross (the art calls it X-Button) is the bottom one, Circle
+  // right, Square left, Triangle top. Share/Create and Options are SDL's back/start. The touchpad is a tracked pad (finger dot, no tilt, wide)
+  // that lights when it is clicked in, not by pressure.
+  ps4: {
+    buttons: [['south', 'X-Button'], ['east', 'Circle-Button'], ['west', 'Square-Button'], ['north', 'Triangle-Button'],
+              ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
+              ['back', 'Share-Button'], ['start', 'Options-Button'], ['guide', 'Home-Button'], ['touchpad', 'Touch-Pad'],
+              ['lb', 'Bumper--L-'], ['rb', 'Bumper--R-']],
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    sticks: { l: 'Thumbstick--L-', r: 'Thumbstick--R-', travel: 24 },
+    trackpads: ['Touch-Pad'], trackpadWide: true, touchpadClick: true,
+  },
+  ps5: {
+    buttons: [['south', 'X-Button'], ['east', 'Circle-Button'], ['west', 'Square-Button'], ['north', 'Triangle-Button'],
+              ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
+              ['back', 'Select-Button'], ['start', 'Menu-Button'], ['guide', 'PlayStation-Button'], ['touchpad', 'Touch-Pad'],
+              ['lb', 'Bumper--L-'], ['rb', 'Bumper--R-']],
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    sticks: { l: 'Thumbstick--L-', r: 'Thumbstick--R-', travel: 24 },
+    trackpads: ['Touch-Pad'], trackpadWide: true, touchpadClick: true,
+  },
+  // Switch Pro Controller. The face buttons are positional like every other skin (SDL's "south" is the bottom button), and Nintendo
+  // names the bottom one B: B south, A east, Y west, X north. Plus/Minus came out of the art editor as `_--Button` / `_--Button1`.
+  // ZL/ZR are digital on this pad (SDL reports them as 0 or full), so those bars jump instead of filling gradually.
+  switch: {
+    buttons: [['south', 'B-Button'], ['east', 'A-Button'], ['west', 'Y-Button'], ['north', 'X-Button'],
+              ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
+              ['back', '_--Button1'], ['start', '_--Button'], ['guide', 'Home-Button'], ['misc1', 'Screenshot-Button'],
+              ['lb', 'Bumper--L-'], ['rb', 'Bumper--R-']],
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    sticks: { l: 'Thumbstick--L-', r: 'Thumbstick--R-', travel: 24 },
+  },
+  // Switch 2 Pro Controller: the same layout plus the C button and the two back paddles (GL, GR).
+  switch2: {
+    buttons: [['south', 'B-Button'], ['east', 'A-Button'], ['west', 'Y-Button'], ['north', 'X-Button'],
+              ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
+              ['back', '_--Button1'], ['start', '_--Button'], ['guide', 'Home-Button'], ['misc1', 'Screenshot-Button'],
+              ['lb', 'Bumper--L-'], ['rb', 'Bumper--R-'],
+              ['c', 'C-Button'], ['l4', 'GL'], ['r4', 'GR']],
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    sticks: { l: 'Thumbstick--L-', r: 'Thumbstick--R-', travel: 24 },
+  },
+  // GameCube (through SDL's GameCube adapter mapping): Z arrives as the right shoulder, the C-stick is the right stick, and there is no
+  // Back/Guide. The face buttons are positional: A south, B west, X east, Y north.
+  gamecube: {
+    buttons: [['south', 'A-Button'], ['west', 'B-Button'], ['east', 'X-Button'], ['north', 'Y-Button'],
+              ['up', 'D-Pad-Up'], ['down', 'D-Pad-Down'], ['left', 'D-Pad-Left'], ['right', 'D-Pad-Right'],
+              ['start', 'Start-Button'], ['rb', 'Z-Button']],
+    triggers: { lt: 'Trigger--L-', rt: 'Trigger--R-' },
+    triggerDead: 28,                       // adapters rest at ~20/255 on the analog triggers: ignore that much so the bars start empty
+    sticks: { l: 'Thumbstick--L-', r: 'C-Stick', travel: 28 },
+  },
+};
+
+// Which logical inputs are active in a controller state (XInput button masks; x = SDL's extra buttons).
+function inputState(p) {
+  const b = p.b || 0, x = p.x || 0;
+  return { south: b & 0x1000, east: b & 0x2000, west: b & 0x4000, north: b & 0x8000, up: b & 1, down: b & 2, left: b & 4, right: b & 8,
+           start: b & 0x10, back: b & 0x20, ls: b & 0x40, rs: b & 0x80, lb: b & 0x100, rb: b & 0x200, guide: b & 0x400,
+           misc1: x & 1, r4: x & 2, l4: x & 4, r5: x & 8, l5: x & 16, touchpad: x & 0x20, c: x & 0x40 };
+}
+
+let layer = null, bodyEl = null;
+const pads = [];                  // trackpads (Steam): finger state + the elements that draw it
+let fingerLoop = false;
+
+// The controller's body is the first image in the artwork; its fill follows the preset's "fill" setting,
+// while the parts on top stay solid so they remain readable at any fill.
+function applyBodyFill() { if (bodyEl) bodyEl.setAttribute('opacity', cfg.fill); }
+
+// Measuring needs layout, and the controller is hidden until one connects, so measure in an off-screen copy.
+function hiddenSvg(vb) {
+  const s = document.createElementNS(NS, 'svg');
+  s.setAttribute('viewBox', vb.join(' ')); s.setAttribute('width', vb[2]); s.setAttribute('height', vb[3]);
+  s.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none';
+  document.body.appendChild(s);
+  return s;
+}
+function rootBox(el, vb) {                                   // bounding box of an element in the artwork's own coordinates
+  const b = el.getBBox(), m = el.getCTM();
+  const pts = [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]
+    .map(([x, y]) => [m.a * x + m.c * y + m.e + vb[0], m.b * x + m.d * y + m.f + vb[1]]);
+  const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+function parseViewBox(r) {
+  const v = (r.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+  return v.length === 4 && v.every(Number.isFinite) ? v : [0, 0, 1000, 1000];
+}
+
+function resetLayered() {
+  icon.textContent = ''; fx.textContent = ''; document.getElementById('labels').textContent = '';
+  padSvg.querySelectorAll('defs clipPath[id^="lay-"]').forEach(c => c.remove());
+  pads.length = 0; layer = null; bodyEl = null;
+}
+function buildLayered(name, txt) {
+  const L = LAYERED[name];
+  const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
+  const vb = parseViewBox(r);
+  resetLayered();
+
+  // 1) measure the parts in an off-screen copy: a tight viewBox, the trigger boxes, the trackpad centres
+  const ms = hiddenSvg(vb);
+  for (const n of [...r.childNodes]) ms.appendChild(document.importNode(n, true));
+  const find = (sc, id) => sc.querySelector('#' + CSS.escape(id));
+  const partBox = id => {                                    // a part with a clipped label inside is measured by its outline
+    const el = find(ms, id); if (!el) return null;
+    const outline = el.querySelector('[clip-path]') ? el.querySelector(':scope > circle, :scope > rect, :scope > path') : null;
+    return rootBox(outline || el, vb);
+  };
+  const ids = [...L.buttons.map(b => b[1]), ...Object.values(L.triggers), L.sticks.l, L.sticks.r, ...(L.trackpads || [])];
+  const boxes = ids.map(partBox).filter(Boolean);
+  const bodyUse = ms.querySelector('use'); if (bodyUse) boxes.push(rootBox(bodyUse, vb));
+  const trigBox = Object.fromEntries(Object.entries(L.triggers).map(([k, id]) => [k, partBox(id)]));
+  const padBox = (L.trackpads || []).map(partBox);
+  const labelBox = Object.fromEntries(Object.keys(L.labels || {}).map(inp => [inp, partBox(L.buttons.find(b => b[0] === inp)[1])]));
+  ms.remove();
+  if (boxes.length) {
+    const x0 = Math.min(...boxes.map(b => b.x)) - 12, y0 = Math.min(...boxes.map(b => b.y)) - 12;
+    const x1 = Math.max(...boxes.map(b => b.x + b.w)) + 12, y1 = Math.max(...boxes.map(b => b.y + b.h)) + 12;
+    padSvg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].map(v => +v.toFixed(1)).join(' '));
+  } else padSvg.setAttribute('viewBox', vb.join(' '));
+
+  // 2) build the real thing
+  for (const n of [...r.childNodes]) icon.appendChild(document.importNode(n, true));
+  bodyEl = [...icon.children].find(e => e.tagName === 'use') || null;
+  applyBodyFill();
+  const overlay = (id, parent = fx, clip) => {
+    const u = mk('use', { href: '#' + id, filter: 'url(#tint)', opacity: 0 }, parent);
+    if (clip) u.setAttribute('clip-path', `url(#${clip})`);
+    return u;
+  };
+  layer = { name, parts: [], triggers: [], sticks: [], dead: L.triggerDead || 0 };
+  for (const [input, id] of L.buttons) if (find(icon, id)) layer.parts.push([input, overlay(id)]);
+
+  // our own labels, centred on the button's circle (the art's own label, if it has one, is hidden)
+  for (const [inp, text] of Object.entries(L.labels || {})) {
+    const id = L.buttons.find(b => b[0] === inp)[1], g = find(icon, id), b = labelBox[inp]; if (!g || !b) continue;
+    g.querySelectorAll('[clip-path]').forEach(c => c.setAttribute('display', 'none'));
+    const t = mk('text', { class: 'lbl', x: (b.x + b.w / 2).toFixed(1), y: (b.y + b.h / 2 + 1).toFixed(1) }, document.getElementById('labels'));
+    t.style.setProperty('--size', (b.h * 0.42).toFixed(1) + 'px');
+    t.textContent = text;
+  }
+
+  // triggers fill from the top down as they are pulled: the recoloured copy is clipped to a rectangle that grows downwards
+  for (const [key, id] of Object.entries(L.triggers)) {
+    const tb = trigBox[key]; if (!tb || !find(icon, id)) continue;
+    const cp = mk('clipPath', { id: 'lay-' + key }, padSvg.querySelector('defs'));
+    const rect = mk('rect', { x: tb.x - 2, y: tb.y - 2, width: tb.w + 4, height: 0 }, cp);
+    overlay(id, fx, 'lay-' + key).setAttribute('opacity', 1);
+    layer.triggers.push({ key, rect, h: tb.h + 4 });
+  }
+  // sticks move, so each gets a wrapper (artwork + overlay) that is translated
+  for (const side of ['l', 'r']) {
+    const id = L.sticks[side], g = find(icon, id); if (!g) continue;
+    const w = mk('g', {}); g.parentNode.insertBefore(w, g); w.appendChild(g);
+    const fxw = mk('g', {}, fx);
+    layer.sticks.push({ side, w, fxw, ov: overlay(id, fxw), travel: L.sticks.travel, press: side === 'l' ? 'ls' : 'rs' });
+  }
+  // trackpads: pressure tint + a finger dot with a short fading trail, in a frame tilted like the pad is drawn
+  (L.trackpads || []).forEach((id, i) => {
+    const b = padBox[i]; if (!b || !find(icon, id)) return;
+    const g = mk('g', {}, fx);
+    const dots = Array.from({ length: TRAIL }, () => mk('circle', { r: 0, fill: 'var(--accent)' }, g));
+    const dot = mk('circle', { r: 0, fill: '#fff', stroke: 'var(--accent)', 'stroke-width': 5 }, g);
+    pads.push({ g, cx: b.x + b.w / 2, cy: b.y + b.h / 2, spanX: b.w * (L.trackpadWide ? 0.9 : 0.8), spanY: L.trackpadWide ? b.h * 0.9 : b.w * 0.8,
+                sign: L.trackpadWide ? 0 : i === 0 ? 1 : -1, ov: L.touchpadClick ? null : overlay(id), dots, dot,
+                trail: [], down: 0, x: .5, y: .5, pr: 0, clicked: false });
+  });
+  pads.forEach(t => t.g.setAttribute('transform', padTransform(t)));
+  if (!fingerLoop) { fingerLoop = true; requestAnimationFrame(drawFingers); }
+}
+const padTransform = t => `translate(${t.cx} ${t.cy}) rotate(${t.sign * cfg.tprot})`;     // sign 0: no tilt
+function drawFingers() {
+  for (const t of pads) {
+    t.trail.push(t.down ? [(t.x - .5) * t.spanX, (t.y - .5) * t.spanY] : null);
+    if (t.trail.length > TRAIL) t.trail.shift();
+    t.dots.forEach((c, i) => {
+      const pt = t.trail[i + t.trail.length - TRAIL] ?? null;   // oldest .. newest
+      if (!pt || i === TRAIL - 1) { c.setAttribute('r', 0); return; }
+      const k = (i + 1) / TRAIL;
+      c.setAttribute('cx', pt[0]); c.setAttribute('cy', pt[1]); c.setAttribute('r', 3 + k * 9); c.setAttribute('opacity', k * .6);
+    });
+    t.dot.setAttribute('cx', (t.x - .5) * t.spanX); t.dot.setAttribute('cy', (t.y - .5) * t.spanY);
+    t.dot.setAttribute('r', t.down ? 12 + t.pr * 10 : 0);
+  }
+  requestAnimationFrame(drawFingers);
+}
+function setStick(s, x, y, pressed) {
+  // XInput: y is positive up; apply a small visual deadzone and a circular clamp.
+  let nx = (x || 0) / 32767, ny = -(y || 0) / 32767;
+  const m = Math.hypot(nx, ny);
+  if (m < .08) { nx = ny = 0; } else if (m > 1) { nx /= m; ny /= m; }
+  const tr = `translate(${nx * s.travel} ${ny * s.travel})`;
+  s.w.setAttribute('transform', tr); s.fxw.setAttribute('transform', tr);
+  s.ov.setAttribute('opacity', pressed ? 1 : 0);
+}
+function applyLayered(p) {
+  if (!layer) return;
+  const on = inputState(p);
+  for (const [input, o] of layer.parts) o.setAttribute('opacity', on[input] ? 1 : 0);
+  const dz = layer.dead;
+  for (const t of layer.triggers) {                                                                  // top to bottom
+    const v = p[t.key] || 0, f = v <= dz ? 0 : (v - dz) / (255 - dz);
+    t.rect.setAttribute('height', (f * t.h).toFixed(1));
+  }
+  for (const s of layer.sticks) setStick(s, s.side === 'l' ? p.lx : p.rx, s.side === 'l' ? p.ly : p.ry, !!on[s.press]);
+  (p.t || []).forEach((f, i) => {
+    const t = pads[i]; if (!t) return;
+    t.down = f[0]; t.x = f[1]; t.y = f[2]; t.pr = f[3];
+    // The pads have no click switch: "pressing" is pressure past a threshold (with hysteresis so it doesn't flicker).
+    t.clicked = !!f[0] && f[3] >= (t.clicked ? cfg.tpt * .8 : cfg.tpt);
+    if (t.ov) t.ov.setAttribute('opacity', t.clicked ? 1 : f[0] ? Math.min(1, f[3]) * .6 : 0);
+  });
+}
+
+const BTN_NAMES = ['A','B','X','Y','Back','Guide','Start','LS','RS','LB','RB','Up','Down','Left','Right','Misc1','RP1','LP1','RP2','LP2','Touchpad','Misc2','Misc3','Misc4','Misc5','Misc6'];
+// debug: log only digital button transitions (touch coordinates are deliberately left out).
+let prevBits = null; const dbgLog = [];
+function debugPad(p) {
+  const cur = { b: p.b || 0, x: p.x || 0, r: p.r || 0 };
+  if (prevBits) for (const k of ['b', 'x', 'r']) {
+    const diff = cur[k] ^ prevBits[k];
+    for (let i = 0; i < 32; i++) if (diff & (1 << i)) {
+      const down = !!(cur[k] & (1 << i));
+      const label = k === 'x' ? `x${i} (SDL ${BTN_NAMES[i + 15] || '?'})` : k === 'r' ? `r${i} (raw button ${i})` : `xinput mask 0x${(1 << i).toString(16)}`;
+      dbgLog.push(`${down ? '▼ press  ' : '▲ release'} ${label}`);
+    }
+  }
+  prevBits = cur; while (dbgLog.length > 12) dbgLog.shift();
+  const f = `skin=${skin}  type=${p.ty}  name=${p.nm}\n` + (p.t || []).map((t, i) => `pad${i}: ${t[0] ? 'touch' : '-----'} pressure ${t[3]}`).join('   ');
+  document.getElementById('dbg').textContent = f + '\n' + (dbgLog.length ? dbgLog.join('\n') : 'press a button...');
+}
+
+let lastPad = null;
+function onPad(p) {
+  lastPad = p;
+  if (dbg) debugPad(p);
+  padConnected = !!p.c;
+  updatePadVisibility();
+  if (cfg.pad !== 'off') syncSkin();
+  applyPad(p);
+}
+
+// ---------------------------------------------------------------- themes
+// A theme is a folder served from /themes/<id>/ (built-in ones and the user's own themes folder). Its stylesheet is loaded on top of
+// the base styles, and it can replace controller artwork by shipping <name>-controller.svg (layered) or pad-<name>.svg (vector).
+let themeList = null, themeId = null, themeInfo = { id: 'default', assets: [], css: '' }, themeLoading = Promise.resolve();
+const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+async function fetchThemes() {
+  try { themeList = (await (await fetch('/api/themes')).json()).themes; } catch (e) { themeList = themeList || []; }
+}
+function applyTheme(id) {
+  if (id === themeId) return themeLoading;
+  themeId = id;
+  themeLoading = (async () => {
+    if (!themeList || !themeList.some(t => t.id === id)) await fetchThemes();       // a theme added since the page loaded
+    const t = themeList.find(x => x.id === id) || themeList.find(x => x.id === 'default') || { id: 'default', assets: [], css: '' };
+    themeInfo = t;
+    document.body.dataset.theme = t.id;
+    let link = document.getElementById('themeCss');
+    if (t.css) {
+      if (!link) { link = Object.assign(document.createElement('link'), { id: 'themeCss', rel: 'stylesheet' }); document.head.appendChild(link); }
+      const href = `/themes/${encodeURIComponent(t.id)}/${encPath(t.css)}?v=${buildId || 0}`;
+      if (link.getAttribute('href') !== href) await new Promise(res => { link.onload = link.onerror = res; link.href = href; });
+    } else if (link) link.remove();
+    skinsChanged();
+  })();
+  return themeLoading;
+}
+const skinFile = name => LAYERED[name] ? `${name}-controller.svg` : `pad-${name}.svg`;
+function skinUrl(name) {
+  const f = skinFile(name);
+  return (themeInfo.assets || []).includes(f) ? `/themes/${encodeURIComponent(themeInfo.id)}/${f}` : `img/${f}`;
+}
+function skinsChanged() {                                    // the new theme may bring (or drop) its own artwork
+  for (const k of Object.keys(textCache)) delete textCache[k];
+  if (skin) { skin = null; syncSkin(); }                     // rebuild the current skin from wherever its artwork now comes from
+}
+
+// ---------------------------------------------------------------- controller skins
+// "steam", "xbox", "ps4", "ps5", "switch", "switch2" and "gamecube" are layered artwork (above). The others are vector files (img/pad-<name>.svg) whose parts say which logical input
+// drives them (data-in="south|east|west|north|up|down|left|right|lb|rb|lt|rt|back|start|guide|misc1|ls|rs|touchpad").
+const textCache = {};
+let skin = null, vec = null, skinSeq = 0, lastAutoSkin = null, skinLoading = Promise.resolve();
+
+// SDL gamepad types: 1 standard, 2 Xbox 360, 3 Xbox One, 4 PS3, 5 PS4, 6 PS5, 7 Switch Pro, 8-10 Joy-Cons, 11 GameCube
+function detectSkin(p) {
+  if (!p || !p.c) return null;
+  const n = (p.nm || '').toLowerCase(), t = p.ty;
+  if (n.includes('steam')) return 'steam';
+  if (t === 11 || /gamecube/.test(n)) return 'gamecube';
+  if (/switch ?2/.test(n)) return 'switch2';                // before the generic Switch rule below: "Nintendo Switch 2 Pro Controller"
+  if (t === 6 || /dualsense|\bps5\b/.test(n)) return 'ps5';
+  if ((t >= 4 && t <= 5) || /dualshock|playstation|\bps[34]\b/.test(n)) return 'ps4';       // PS4, and PS3 (which looks the same)
+  if ((t >= 7 && t <= 10) || /nintendo|switch|joy-?con|pro controller/.test(n)) return 'switch';
+  return 'xbox';                          // Xbox pads, XInput, and any generic pad (the most common layout)
+}
+function wantedSkin() {
+  if (cfg.controller && cfg.controller !== 'auto') return cfg.controller;
+  const d = detectSkin(lastPad); if (d) lastAutoSkin = d;
+  return d || lastAutoSkin || 'steam';
+}
+function syncSkin() {
+  const want = wantedSkin();
+  if (want === skin) return;
+  skin = want;
+  padSvg.dataset.skin = want;                // themes can style per skin: #padSvg[data-skin="xbox"] ...
+  const seq = ++skinSeq;
+  skinLoading = (async () => {
+    await themeLoading;                      // the theme may replace the artwork, so know which theme we're in first
+    if (seq !== skinSeq) return;
+    try {
+      const url = skinUrl(want);
+      const txt = textCache[url] || (textCache[url] = await (await fetch(url)).text());
+      if (seq !== skinSeq) return;           // a newer skin was requested while this one loaded
+      if (LAYERED[want]) { vec = null; vecSkin.textContent = ''; buildLayered(want, txt); layerSkin.classList.remove('hidden'); vecSkin.classList.add('hidden'); }
+      else { resetLayered(); buildVector(txt); vecSkin.classList.remove('hidden'); layerSkin.classList.add('hidden'); }
+      applyPad(lastPad || {});               // also applies each part's idle colour right away
+    } catch (e) { console.error('could not load controller skin', want, e); }
+  })();
+}
+function buildVector(txt) {
+  const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
+  const vb = parseViewBox(r);
+  vecSkin.textContent = '';
+  padSvg.querySelectorAll('defs clipPath[id^="lay-"]').forEach(c => c.remove());
+  for (const n of [...r.childNodes]) vecSkin.appendChild(document.importNode(n, true));
+  padSvg.setAttribute('viewBox', r.getAttribute('viewBox') || '0 0 1000 640');
+  const area = vecSkin.querySelector('[data-in="touchpad"] .tp-area');
+  const parts = [...vecSkin.querySelectorAll('[data-in]')].map(el => ({ el, input: el.dataset.in, idle: el.dataset.idle || null }));
+
+  // triggers fill from the top down as they are pulled: a copy in the highlight colour, clipped to a growing rectangle
+  const ms = hiddenSvg(vb);                                  // (the local box of a shape needs layout, so measure an off-screen copy)
+  const triggers = [];
+  for (const part of parts) {
+    if (part.input !== 'lt' && part.input !== 'rt') continue;
+    const probe = ms.appendChild(part.el.cloneNode(true)), b = probe.getBBox();
+    const id = `lay-v-${part.input}`;
+    const cp = mk('clipPath', { id }, padSvg.querySelector('defs'));
+    const rect = mk('rect', { x: b.x - 1, y: b.y - 1, width: b.width + 2, height: 0 }, cp);   // in the part's own (possibly tilted) coordinates
+    const hot = part.el.cloneNode(true);
+    hot.removeAttribute('data-in'); hot.removeAttribute('data-idle'); hot.style.setProperty('--part', 'var(--accent)');
+    hot.setAttribute('clip-path', `url(#${id})`);
+    part.el.after(hot);
+    triggers.push({ key: part.input, rect, h: b.height + 2 });
+  }
+  ms.remove();
+  vec = {
+    parts, triggers,
+    sticks: [...vecSkin.querySelectorAll('[data-stick]')].map(el => ({ el, side: el.dataset.stick, travel: +el.dataset.travel || 20 })),
+    area: area && { x: +area.getAttribute('x'), y: +area.getAttribute('y'), w: +area.getAttribute('width'), h: +area.getAttribute('height') },
+    finger: area && mk('circle', { class: 'finger', r: 0 }, area.parentNode),
+  };
+}
+
+function applyPad(p) { if (LAYERED[skin]) applyLayered(p); else applyVector(p); }
+function applyVector(p) {
+  if (!vec) return;
+  const on = inputState(p);
+  for (const { el, input, idle } of vec.parts) {
+    let color = null;                                           // null = the CSS idle colour
+    if (on[input]) color = 'var(--accent)'; else if (idle) color = idle;
+    if (color) el.style.setProperty('--part', color); else el.style.removeProperty('--part');
+  }
+  for (const t of vec.triggers) t.rect.setAttribute('height', ((p[t.key] || 0) / 255 * t.h).toFixed(1));       // top to bottom
+  for (const s of vec.sticks) {                                  // XInput: y is positive up; small deadzone, circular clamp
+    let nx = (s.side === 'l' ? p.lx : p.rx) / 32767 || 0, ny = -(s.side === 'l' ? p.ly : p.ry) / 32767 || 0;
+    const m = Math.hypot(nx, ny);
+    if (m < .08) nx = ny = 0; else if (m > 1) { nx /= m; ny /= m; }
+    s.el.setAttribute('transform', `translate(${(nx * s.travel).toFixed(1)} ${(ny * s.travel).toFixed(1)})`);
+  }
+  if (vec.finger) {                                              // touchpad finger (PlayStation)
+    const f = (p.t || [])[0];
+    if (f && f[0]) { vec.finger.setAttribute('cx', vec.area.x + f[1] * vec.area.w); vec.finger.setAttribute('cy', vec.area.y + f[2] * vec.area.h); vec.finger.setAttribute('r', 12); }
+    else vec.finger.setAttribute('r', 0);
+  }
+}
+
+// ---------------------------------------------------------------- draft only: drag a key's right edge to resize it
+// Only the Settings preview does this (never the page OBS shows). Sizes are kept per preset; the keyboard re-renders as you drag, and
+// because the overlay is laid out in a row, whatever sits next to the keyboard (the mouse) moves with it.
+function initKeyResize() {
+  const EDGE = 9;                                            // px either side of a key's right edge that counts as grabbing it
+  const handle = Object.assign(document.createElement('div'), { id: 'kbHandle' });
+  document.body.appendChild(handle);
+  let drag = null;
+  const edgeAt = (x, y) => {
+    let best = null;
+    for (const el of document.querySelectorAll('#kb .key')) {
+      const r = el.getBoundingClientRect();
+      if (y < r.top || y > r.bottom) continue;
+      const d = Math.abs(x - r.right);
+      if (d <= EDGE && (!best || d < best.d)) best = { el, r, d };
+    }
+    return best;
+  };
+  const place = r => Object.assign(handle.style, { display: 'block', left: (r.right - 3) + 'px', top: r.top + 'px', height: r.height + 'px' });
+  const widthOf = vk => (cfg.keyboard.sizes && cfg.keyboard.sizes[vk]) || KB.DEFAULT_W[vk];
+  document.addEventListener('pointermove', e => {
+    if (drag) {
+      const w = Math.min(KB.MAX_W, Math.max(KB.MIN_W, Math.round((drag.w0 + (e.clientX - drag.x0) / drag.ppu) / KB.SNAP) * KB.SNAP));
+      if (w !== drag.w) { drag.w = w; (cfg.keyboard.sizes = cfg.keyboard.sizes || {})[drag.vk] = w; renderKeyboard(); }
+      const el = document.querySelector(`#kb .key[data-vk="${drag.vk}"]`);
+      if (el) place(el.getBoundingClientRect());
+      return;
+    }
+    const hit = edgeAt(e.clientX, e.clientY);
+    if (hit) { place(hit.r); document.body.style.cursor = 'ew-resize'; } else { handle.style.display = 'none'; document.body.style.cursor = ''; }
+  });
+  document.addEventListener('pointerdown', e => {
+    const hit = edgeAt(e.clientX, e.clientY); if (!hit) return;
+    const vk = +hit.el.dataset.vk, w0 = widthOf(vk);
+    const ppu = hit.r.width / (w0 * (KB.U + KB.G) - KB.G) * (KB.U + KB.G);       // screen px per key unit, whatever zoom is applied
+    drag = { vk, w0, w: w0, x0: e.clientX, ppu };
+    e.preventDefault();
+  });
+  document.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const { vk, w, w0 } = drag; drag = null;
+    if (w !== w0) parent.postMessage({ type: 'keysize', vk, w }, location.origin);
+  });
+  document.addEventListener('dblclick', e => {               // double-click an edge to put that key back to its default width
+    const hit = edgeAt(e.clientX, e.clientY);
+    if (hit) parent.postMessage({ type: 'keysize', vk: +hit.el.dataset.vk, w: null }, location.origin);
+  });
+}
+
+// ---------------------------------------------------------------- socket
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.v) {          // build id: a new build means this page is stale (OBS keeps showing the old copy), so reload it
+      if (buildId && buildId !== m.v && !draft) location.reload();
+      buildId = m.v;
+    }
+    else if (m.reload) { if (!draft) refresh(); }
+    else if (m.k) setKey(m.k[0], m.k[1]);
+    else if (m.m) setMouseButton(m.m[0], !!m.m[1]);
+    else if (m.d) addMotion(m.d[0], m.d[1]);
+    else if (m.s) { if (m.s[1]) onScroll(m.s[1]); }
+    else if (m.p) onPad(m.p);
+  };
+  ws.onclose = () => setTimeout(connect, 1000);
+}
+
+// Without ?preset= the overlay follows the active preset (switched from the tray, Settings or a Stream Deck URL);
+// with ?preset=Name it stays pinned to that preset.
+async function refresh() {
+  let base;
+  try {
+    const data = await (await fetch('/api/presets')).json();
+    const name = q.get('preset');
+    settings = { ...settings, ...data.settings };
+    base = data.presets.find(p => p.name === name) || data.presets.find(p => p.name === data.active) || data.presets[0];
+    if (name && base && base.name !== name) console.warn(`preset "${name}" not found, using "${base.name}"`);
+  } catch (e) { console.error('could not load presets', e); return; }
+  applyConfig(withOverrides(normalize(base)));
+}
+
+async function init() {
+  if (draft) {
+    // The settings page drives this preview; it posts the preset being edited.
+    addEventListener('message', e => {
+      if (e.origin === location.origin && e.data && e.data.type === 'cfg') {
+        if (e.data.settings) { settings = { ...settings, ...e.data.settings }; for (const n of Object.keys(held)) setMouseButton(n, held[n]); }
+        applyConfig(normalize(e.data.preset));
+        // Report the size the overlay needs, so Settings can tell you what to type into OBS.
+        Promise.all([themeLoading, skinLoading]).then(() => setTimeout(() => {
+          const r = root.getBoundingClientRect();
+          parent.postMessage({ type: 'size', token: e.data.token, w: Math.ceil(r.width), h: Math.ceil(r.height) }, location.origin);
+        }, 80));
+      }
+    });
+    applyConfig(normalize());
+    initKeyResize();
+  } else {
+    await refresh();
+  }
+  if (!q.has('static')) connect();      // ?static=1: don't listen to real input (for screenshots and demos)
+}
+init();
+</script>
+</body>
+</html>

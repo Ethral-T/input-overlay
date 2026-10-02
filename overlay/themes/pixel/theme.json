@@ -1,0 +1,7 @@
+{
+  "name": "Retro Pixel",
+  "author": "Input Overlay",
+  "description": "Chunky 8-bit look: square bevelled keys, a pixel font, and pixelated mouse and controller.",
+  "version": "1.0",
+  "css": "theme.css"
+}

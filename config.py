@@ -1,0 +1,236 @@
+"""Preset storage. Presets live in %APPDATA%\\InputOverlay\\config.json.
+
+A preset is one overlay "variant":
+  {"keyboard": {"mode": "full" | "custom" | "off", "keys": [<windows vk codes>], "sizes": {"<vk>": <width in key units>}},
+   "mouse": bool, "pad": "auto" | "on" | "off",
+   "theme": "<theme id>" ("default" = Classic; see themes.py),
+   "controller": "auto" | "steam" | "xbox" | "ps4" | "ps5" | "switch" | "switch2" | "gamecube" (artwork; auto picks from the connected pad),
+   "swapSide": bool (Mouse Button Invert; used when that setting is "this preset" scoped),
+   "align": "tl".."br" (where the overlay sits inside the Browser Source: top/middle/bottom + left/centre/right; default "mc"),
+   "accent": "#rrggbb" (used when Highlight colour is "this preset" scoped), "opacity": 0.1..1 (whole overlay), "fill": 0..1 (key/mouse/controller background), "scale": float, "sens": float, "tpt": float, "tprot": float}
+"""
+import json
+import os
+import re
+import threading
+from pathlib import Path
+
+APP_DIR = Path(os.environ.get("INPUT_OVERLAY_HOME") or Path(os.environ.get("APPDATA") or Path.home()) / "InputOverlay")
+CONFIG_PATH = APP_DIR / "config.json"
+VERSION = 2                       # config.json format; see Config._load for migrations
+
+CONTROLLER_STYLES = ("auto", "steam", "xbox", "ps4", "ps5", "switch", "switch2", "gamecube")
+
+# vk codes for the starter "WASD" preset: 1-5, Tab QWER, ASDF, Shift ZXCV, Ctrl Alt Space
+_WASD = [49, 50, 51, 52, 53, 9, 81, 87, 69, 82, 65, 83, 68, 70, 160, 90, 88, 67, 86, 162, 164, 32]
+
+SEED = [
+    {"name": "Full", "keyboard": {"mode": "full", "keys": []}, "mouse": True, "pad": "auto"},
+    # the spacebar is shrunk to 2.5 units so it ends under the V key instead of trailing off to the right
+    {"name": "WASD + Mouse", "keyboard": {"mode": "custom", "keys": _WASD, "sizes": {"32": 2.5}}, "mouse": True, "pad": "auto"},
+    {"name": "Keyboard only", "keyboard": {"mode": "full", "keys": []}, "mouse": False, "pad": "off"},
+    {"name": "Controller only", "keyboard": {"mode": "off", "keys": []}, "mouse": False, "pad": "on"},
+]
+
+
+def clean(p):
+    """Coerce arbitrary JSON into a valid preset (never trust the file or the API caller)."""
+    p = p if isinstance(p, dict) else {}
+    kb = p.get("keyboard") if isinstance(p.get("keyboard"), dict) else {}
+    mode = kb.get("mode") if kb.get("mode") in ("full", "custom", "off") else "full"
+    keys = sorted({int(k) for k in kb.get("keys", []) if isinstance(k, int) and 0 <= k <= 255})
+    # per-key width overrides, {vk: units}: clamped to what the overlay lets you drag to, snapped to quarter units
+    sizes = {}
+    for k, v in (kb.get("sizes") if isinstance(kb.get("sizes"), dict) else {}).items():
+        try:
+            vk = int(k)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= vk <= 255 and isinstance(v, (int, float)) and not isinstance(v, bool) and len(sizes) < 120:
+            sizes[str(vk)] = round(min(12.0, max(0.5, float(v))) * 4) / 4
+
+    def num(key, default, lo, hi):
+        v = p.get(key, default)
+        return min(hi, max(lo, float(v))) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+
+    accent = p.get("accent") if isinstance(p.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", p["accent"]) else "#38bdf8"
+    return {
+        "keyboard": {"mode": mode, "keys": keys, "sizes": sizes},
+        "mouse": bool(p.get("mouse", True)),
+        "swapSide": bool(p.get("swapSide", False)),
+        "controller": {"playstation": "ps5"}.get(p.get("controller"), p.get("controller")) if {"playstation": "ps5"}.get(p.get("controller"), p.get("controller")) in CONTROLLER_STYLES else "auto",   # "playstation" is the old name
+        "theme": clean_theme(p.get("theme")),
+        "pad": p.get("pad") if p.get("pad") in ("auto", "on", "off") else "auto",
+        "align": p.get("align") if p.get("align") in ('tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br') else "mc",
+        "accent": accent,
+        "scale": num("scale", 1.0, 0.25, 4.0),
+        "sens": num("sens", 1.0, 0.1, 5.0),
+        "tpt": num("tpt", 0.5, 0.05, 1.0),
+        "opacity": num("opacity", 1.0, 0.1, 1.0),
+        "fill": num("fill", 0.8, 0.0, 1.0),
+        "tprot": num("tprot", 9.0, -45.0, 45.0),
+    }
+
+
+THEME_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,39}$")
+
+
+def clean_theme(v):
+    return v if isinstance(v, str) and THEME_ID_RE.match(v) else "default"
+
+
+def clean_settings(s):
+    """Values shared by every preset, plus which settings are currently shared.
+
+    scope[k] True  -> setting k uses the shared value below for ALL presets
+    scope[k] False -> setting k uses each preset's own value
+    """
+    s = s if isinstance(s, dict) else {}
+
+    def num(key, default, lo, hi):
+        v = s.get(key, default)
+        return min(hi, max(lo, float(v))) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+
+    scope_in = s.get("scope") if isinstance(s.get("scope"), dict) else {}
+    legacy_share = bool(s.get("shareLook", False))          # older versions had one checkbox for both opacity sliders
+    scope = {
+        "swapSide": bool(scope_in.get("swapSide", True)),   # Mouse Button Invert was always global
+        "opacity": bool(scope_in.get("opacity", legacy_share)),
+        "fill": bool(scope_in.get("fill", legacy_share)),
+        "theme": bool(scope_in.get("theme", True)),         # one theme for the whole stream unless you say otherwise
+        "accent": bool(scope_in.get("accent", False)),      # the highlight colour is per preset until you say otherwise
+    }
+    return {
+        "swapSide": bool(s.get("swapSide", False)),
+        "opacity": num("opacity", 1.0, 0.1, 1.0),
+        "fill": num("fill", 0.8, 0.0, 1.0),
+        "theme": clean_theme(s.get("theme")),
+        "accent": s.get("accent") if isinstance(s.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["accent"]) else "#38bdf8",
+        "scope": scope,
+    }
+
+
+def clean_name(name):
+    name = re.sub(r"\s+", " ", str(name)).strip()[:40]
+    return name or None
+
+
+class Config:
+    def __init__(self, path=CONFIG_PATH):
+        self.path = path
+        self.lock = threading.RLock()
+        self.presets = {}          # name -> preset (insertion ordered)
+        self.active = None         # name of the preset the plain base URL shows
+        self.settings = clean_settings({})
+        self._load()
+
+    def _load(self):
+        wanted, version = None, VERSION
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            version = data.get("version", 1)
+            wanted = data.get("active")
+            self.settings = clean_settings(data.get("settings"))
+            for item in data.get("presets", []):
+                name = clean_name(item.get("name", ""))
+                if name:
+                    self.presets[name] = clean(item)
+        except (OSError, ValueError, AttributeError):
+            pass
+        seeded = not self.presets
+        if seeded:
+            for item in SEED:
+                self.presets[item["name"]] = clean(item)
+        self.active = wanted if wanted in self.presets else next(iter(self.presets))
+        migrated = version < 2 and self._centre_old_default()
+        if seeded or migrated or version != VERSION:
+            self._save()
+
+    def _centre_old_default(self):
+        """v1 -> v2: the overlay used to default to the top-left of the Browser Source; centre is the default now.
+        Presets still on top-left are moved to the centre once. After this, whatever you pick is kept."""
+        moved = False
+        for p in self.presets.values():
+            if p["align"] == "tl":
+                p["align"] = "mc"
+                moved = True
+        return moved
+
+    def _save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"version": VERSION, "active": self.active, "settings": self.settings, "presets": self.as_list()}, indent=1), encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def as_list(self):
+        return [{"name": n, **p} for n, p in self.presets.items()]
+
+    def put(self, name, preset, rename_from=None):
+        name = clean_name(name)
+        if not name:
+            raise ValueError("name required")
+        with self.lock:
+            if rename_from and rename_from != name and rename_from in self.presets:
+                if name in self.presets:
+                    raise ValueError("a preset with that name already exists")
+                # keep position when renaming
+                self.presets = {(name if n == rename_from else n): p for n, p in self.presets.items()}
+                if self.active == rename_from:
+                    self.active = name
+            self.presets[name] = clean(preset)
+            self._save()
+            return {"name": name, **self.presets[name]}
+
+    def delete(self, name):
+        with self.lock:
+            if name not in self.presets:
+                raise KeyError(name)
+            if len(self.presets) == 1:
+                raise ValueError("can't delete the last preset")
+            del self.presets[name]
+            if self.active == name:
+                self.active = next(iter(self.presets))
+            self._save()
+
+    def put_settings(self, settings):
+        with self.lock:
+            self.settings = clean_settings(settings)
+            self._save()
+            return self.settings
+
+    def find(self, ref):
+        """Resolve a preset from a name (exact, then case-insensitive) or a 1-based position ("2")."""
+        ref = str(ref).strip()
+        if ref in self.presets:
+            return ref
+        for n in self.presets:
+            if n.casefold() == ref.casefold():
+                return n
+        if ref.isdigit() and 1 <= int(ref) <= len(self.presets):
+            return list(self.presets)[int(ref) - 1]
+        return None
+
+    def set_active(self, ref):
+        with self.lock:
+            name = self.find(ref)
+            if name is None:
+                raise KeyError(ref)
+            self.active = name
+            self._save()
+            return name
+
+    def cycle(self, step):
+        with self.lock:
+            names = list(self.presets)
+            return self.set_active(names[(names.index(self.active) + step) % len(names)])
+
+
+_shared = None
+
+
+def shared():
+    """The one Config used by the server, the tray menu and the API, so they always agree."""
+    global _shared
+    if _shared is None:
+        _shared = Config()
+    return _shared
