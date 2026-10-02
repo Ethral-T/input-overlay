@@ -33,7 +33,7 @@ jobs:
 
       - name: Check the bundled libraries are present
         run: |
-          foreach ($f in "lib/SDL3.dll", "lib/libusb-1.0.dll", "lib/libusb-NOTICE.txt") {
+          foreach ($f in "lib/SDL3.dll", "lib/libusb-1.0.dll", "lib/libusb-NOTICE.txt", "LICENSE", "THIRD_PARTY_NOTICES.md") {
             if (-not (Test-Path $f)) { throw "$f is missing from the repository" }
           }
 
@@ -58,7 +58,7 @@ jobs:
           New-Item -ItemType Directory -Path "pkg" | Out-Null
           Copy-Item "dist/InputOverlay" "pkg/InputOverlay" -Recurse
           Copy-Item "lib/libusb-NOTICE.txt" "pkg/InputOverlay/"
-          Copy-Item "README.md" "pkg/"
+          Copy-Item "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md" "pkg/"
           Compress-Archive -Path "pkg/*" -DestinationPath "$name.zip"
           $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256.txt"

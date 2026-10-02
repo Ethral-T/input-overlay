@@ -80,7 +80,7 @@ Put the font file in your theme folder and use a **relative** url:
 
 ### Pixel filters
 
-`filter: url(#pixelate-4)`, `url(#pixelate-6)`, `url(#pixelate-8)` and `url(#pixelate-10)` turn anything into 4, 6, 8 or 10 unit blocks. See the built-in
+`filter: url(#pixelate-4)`, `url(#pixelate-6)`, `url(#pixelate-8)`, `url(#pixelate-10)`, `url(#pixelate-12)`, `url(#pixelate-14)` and `url(#pixelate-16)` turn anything into blocks of that many units. See the built-in
 **Retro Pixel** theme, which also ships a pixel font drawn on a grid (sizes in multiples of 8px stay crisp).
 
 The filters sample a block of N/2 units in the middle of each N-unit block. That has to stay well over one screen pixel at any zoom: a smaller sample

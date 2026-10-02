@@ -79,6 +79,7 @@ For development, `python server.py` runs the server in a console (no tray). Serv
 | `accent` | colour, e.g. `f43f5e` or `orange` |
 | `scale`, `opacity`, `fill`, `sens`, `tpt` | size, overall opacity (0.1-1), fill opacity of keys/mouse/controller backgrounds (0-1), mouse-movement sensitivity, trackpad click pressure (0-1) |
 | `tprot` | tilt in degrees of the trackpad finger-tracking frame (default 9) |
+| `gyro`, `gsens` | gyro display: `off`, `tilt`, `aim` or `both`, and its sensitivity (see *Gyro* below) |
 | `static` | `1` doesn't connect to real input (for screenshots and demos) |
 | `theme` | theme id: `default`, `pixel`, `neon`, or the folder name of one you added |
 | `controller` | artwork: `auto`, `steam`, `xbox`, `ps4`, `ps5`, `switch`, `switch2`, `gamecube` |
@@ -122,6 +123,18 @@ art is Cross, the bottom button. The touchpad lights when clicked in, and your f
 The GameCube art follows SDL's button positions for the GameCube adapter (Z arrives as the right shoulder, the C-stick as the right stick) and may need adjusting after a
 real test: use `?debug=1` to see which input each button sends, then change its entry in the `gamecube` row of the `LAYERED` table in
 `overlay/index.html`.
+
+### Gyro
+
+Controllers with motion sensors (PlayStation 4 and 5, Switch Pro, Steam Controller, where SDL reports them) can show their gyroscope. Choose it in
+Settings, Controller, **Gyro** (per preset; off by default), or with `?gyro=tilt|aim|both`:
+
+- **Tilt the picture**: the controller artwork leans the way you turn the real one, then settles back to level when you stop.
+- **Aim dot**: a box beside the controller with a dot that follows the turn and leaves a fading trail, then drifts back to the middle.
+
+A gyroscope measures how fast the controller turns, not where it points, so both displays are "motion" views that recentre by themselves.
+**Gyro sensitivity** (`gsens`) scales how far the picture leans and how fast the dot moves. `?debug=1` shows the live gyro rates, or says the
+controller doesn't report a gyroscope. The Switch 2 Pro, the GameCube adapters and Xbox pads don't report gyro to this program yet.
 
 ### GameCube controllers
 
@@ -183,3 +196,9 @@ The keyboard hook is global: the overlay shows keys typed in any window, includi
 - Games running as administrator may block input hooks from a non-elevated process; run the program elevated if needed.
 - Mouse movement uses Windows Raw Input, so it works in games that lock the cursor.
 - The numpad is not displayed yet.
+
+## Licence
+
+Input Overlay is free software under the [MIT licence](LICENSE). The program bundles other open-source components (SDL3, libusb and several
+Python packages) that keep their own licences: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Xbox, PlayStation, Nintendo, Steam and the other
+product names are trademarks of their owners; this project is independent and not affiliated with them.

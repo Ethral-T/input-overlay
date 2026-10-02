@@ -212,6 +212,7 @@ class _XSTATE(ctypes.Structure):
 class SdlBackend:
     name = "SDL3"
     INIT_GAMEPAD, INIT_EVENTS = 0x2000, 0x4000
+    SENSOR_ACCEL, SENSOR_GYRO = 1, 2
     # SDL_GamepadButton -> XInput bitmask
     BUTTONS = {0: 0x1000, 1: 0x2000, 2: 0x4000, 3: 0x8000, 4: 0x20, 5: 0x400, 6: 0x10, 7: 0x40, 8: 0x80,
                9: 0x100, 10: 0x200, 11: 0x1, 12: 0x2, 13: 0x4, 14: 0x8}
@@ -250,6 +251,13 @@ class SdlBackend:
             ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_bool),
             ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
         sdl.SDL_GetGamepadTouchpadFinger.restype = ctypes.c_bool
+        # Motion sensors (SDL_SensorType: 1 accelerometer, 2 gyroscope). Only the gyroscope is used (rates in rad/s).
+        sdl.SDL_GamepadHasSensor.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        sdl.SDL_GamepadHasSensor.restype = ctypes.c_bool
+        sdl.SDL_SetGamepadSensorEnabled.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_bool]
+        sdl.SDL_SetGamepadSensorEnabled.restype = ctypes.c_bool
+        sdl.SDL_GetGamepadSensorData.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int]
+        sdl.SDL_GetGamepadSensorData.restype = ctypes.c_bool
         sdl.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
         # Otherwise SDL_Init installs its own SIGINT handler, which swallows Ctrl+C.
         sdl.SDL_SetHint(b"SDL_NO_SIGNAL_HANDLERS", b"1")
@@ -258,6 +266,7 @@ class SdlBackend:
         self.index = index
         self.pad = None
         self.pad_name, self.pad_type = "", 0
+        self.gyro = False                         # the open pad reports a gyroscope and it is switched on
 
     def _open(self):
         n = ctypes.c_int(0)
@@ -272,6 +281,9 @@ class SdlBackend:
                     self.pad_name = (self.sdl.SDL_GetGamepadName(self.pad) or b"").decode(errors="replace")
                     self.pad_type = self.sdl.SDL_GetGamepadType(self.pad)
                     print(f"[pad] {self.name}: {self.pad_name} (SDL type {self.pad_type})")
+                    has = bool(self.sdl.SDL_GamepadHasSensor(self.pad, self.SENSOR_GYRO))
+                    self.gyro = has and bool(self.sdl.SDL_SetGamepadSensorEnabled(self.pad, self.SENSOR_GYRO, True))
+                    print(f"[pad] {self.name}: gyro " + ("on" if self.gyro else "available but could not be enabled" if has else "not reported by this controller"))
         finally:
             self.sdl.SDL_free(ids)
 
@@ -280,6 +292,7 @@ class SdlBackend:
         if self.pad and not self.sdl.SDL_GamepadConnected(self.pad):
             self.sdl.SDL_CloseGamepad(self.pad)
             self.pad = None
+            self.gyro = False
         if not self.pad:
             self._open()
             if not self.pad:
@@ -308,10 +321,15 @@ class SdlBackend:
                                                      ctypes.byref(fy), ctypes.byref(fp)):
                 touch.append([int(down.value), round(fx.value, 3), round(fy.value, 3), round(fp.value, 2)])
         # SDL: stick Y is positive-down, triggers are 0..32767.
-        return {"c": 1, "b": b, "x": x, "r": r, "t": touch, "ty": self.pad_type, "nm": self.pad_name,
-                "lt": ga(self.pad, 4) * 255 // 32767, "rt": ga(self.pad, 5) * 255 // 32767,
-                "lx": ga(self.pad, 0), "ly": -ga(self.pad, 1) - (ga(self.pad, 1) == -32768),
-                "rx": ga(self.pad, 2), "ry": -ga(self.pad, 3) - (ga(self.pad, 3) == -32768)}
+        state = {"c": 1, "b": b, "x": x, "r": r, "t": touch, "ty": self.pad_type, "nm": self.pad_name,
+                 "lt": ga(self.pad, 4) * 255 // 32767, "rt": ga(self.pad, 5) * 255 // 32767,
+                 "lx": ga(self.pad, 0), "ly": -ga(self.pad, 1) - (ga(self.pad, 1) == -32768),
+                 "rx": ga(self.pad, 2), "ry": -ga(self.pad, 3) - (ga(self.pad, 3) == -32768)}
+        if self.gyro:                     # angular speed in rad/s about SDL's x (pitch), y (yaw) and z (roll); rounded so a still pad sends nothing new
+            g = (ctypes.c_float * 3)()
+            if self.sdl.SDL_GetGamepadSensorData(self.pad, self.SENSOR_GYRO, g, 3):
+                state["g"] = [round(g[0], 2), round(g[1], 2), round(g[2], 2)]
+        return state
 
 
 class XInputBackend:
