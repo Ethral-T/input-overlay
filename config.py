@@ -8,7 +8,8 @@ A preset is one overlay "variant":
    "swapSide": bool (Mouse Button Invert; used when that setting is "this preset" scoped),
    "align": "tl".."br" (where the overlay sits inside the Browser Source: top/middle/bottom + left/centre/right; default "mc"),
    "accent": "#rrggbb" (used when Highlight colour is "this preset" scoped), "opacity": 0.1..1 (whole overlay), "fill": 0..1 (key/mouse/controller background), "scale": float, "sens": float, "tpt": float, "tprot": float,
-   "gyro": "off" | "tilt" | "aim" | "both" (how a controller's gyroscope is shown: the picture tilts and/or an aim dot with a trail),
+   "gyro": "off" | "tilt" | "aim" | "both" (how a controller's gyroscope is shown: the picture tilts and/or an aim dot with a trail; used when
+           Gyro is "this preset" scoped, otherwise the shared value in settings applies to every preset),
    "gsens": float (gyro sensitivity)}
 """
 import json
@@ -103,6 +104,7 @@ def clean_settings(s):
         "fill": bool(scope_in.get("fill", legacy_share)),
         "theme": bool(scope_in.get("theme", True)),         # one theme for the whole stream unless you say otherwise
         "accent": bool(scope_in.get("accent", False)),      # the highlight colour is per preset until you say otherwise
+        "gyro": bool(scope_in.get("gyro", False)),          # the Stream Deck gyro URLs switch this to "all presets"
     }
     return {
         "swapSide": bool(s.get("swapSide", False)),
@@ -110,6 +112,7 @@ def clean_settings(s):
         "fill": num("fill", 0.8, 0.0, 1.0),
         "theme": clean_theme(s.get("theme")),
         "accent": s.get("accent") if isinstance(s.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["accent"]) else "#38bdf8",
+        "gyro": s.get("gyro") if s.get("gyro") in ("off", "tilt", "aim", "both") else "off",
         "scope": scope,
     }
 
