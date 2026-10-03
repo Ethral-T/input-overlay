@@ -45,6 +45,20 @@
   #status.err { color: var(--danger); }
   #list li .live { float: right; font-size: 11px; color: #06121a; background: var(--accent); border-radius: 999px; padding: 0 8px; font-weight: 600; }
   .urlrow { display: flex; gap: 10px; align-items: center; }
+  dialog#sdDlg { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+                 border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,.6); overflow: auto; }
+  dialog#sdDlg::backdrop { background: rgba(6, 8, 13, .72); }
+  .dlgHead { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+  .dlgHead h3 { margin: 0; font-size: 15px; }
+  .dlgNote { padding: 12px 18px 4px; }
+  #sdList { padding: 4px 18px 18px; }
+  #sdList h4 { margin: 16px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .sdRow { display: grid; grid-template-columns: 170px 1fr auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  .sdRow:first-of-type { border-top: 0; }
+  .sdRow .lbl { color: var(--fg); font-size: 13px; }
+  .sdRow .lbl small { display: block; color: var(--muted); font-size: 11px; }
+  .sdRow .url { padding: 6px 9px; font-size: 12px; }
+  @media (max-width: 640px) { .sdRow { grid-template-columns: 1fr auto; } .sdRow .lbl { grid-column: 1 / -1; } }
   .urlrow .lbl { width: 150px; flex: none; color: var(--muted); font-size: 12px; }
   .urlrow .url { flex: 1 1 auto; }
   .val { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 38px; display: inline-block; }
@@ -121,13 +135,12 @@
   </div>
 
   <div class="card">
-    <h2>Stream Deck / hotkey switching</h2>
-    <div class="muted" style="margin-bottom:10px">Each of these is a plain GET request that switches the active preset and returns <code>{"active": "…"}</code>.
-      In Stream Deck use an action that sends an HTTP GET in the background (the built-in <b>Website</b> action with
-      "Access in background" ticked, or an API plugin such as BarRaider's API Ninja). A preset can also be addressed by its number, e.g. <code>/api/switch/2</code>.</div>
-    <div class="row urlrow"><div class="lbl">Switch to this preset</div><div class="url" id="urlSwitch"></div><button data-copy="urlSwitch">Copy</button></div>
-    <div class="row urlrow"><div class="lbl">Next preset</div><div class="url" id="urlNext"></div><button data-copy="urlNext">Copy</button></div>
-    <div class="row urlrow"><div class="lbl">Previous preset</div><div class="url" id="urlPrev"></div><button data-copy="urlPrev">Copy</button></div>
+    <h2>Stream Deck / hotkey control</h2>
+    <div class="row" style="justify-content:space-between">
+      <div class="muted" style="flex:1 1 300px">Switch presets and turn the gyro displays on or off from a Stream Deck button, a hotkey tool or a script:
+        each is a plain web address that does the job when it is opened (an HTTP GET).</div>
+      <button class="primary" id="btnSd" type="button">Show the URLs…</button>
+    </div>
   </div>
 
   <div class="card">
@@ -190,8 +203,8 @@
           <span class="ctl"><select id="controller"><option value="auto">Auto-detect</option><option value="steam">Steam Controller</option><option value="xbox">Xbox</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="switch">Nintendo Switch</option><option value="switch2">Switch 2 Pro</option><option value="gamecube">GameCube</option></select></span></label>
         <label class="setting"><span class="name">Show controller</span>
           <span class="ctl"><select id="pad"><option value="auto">When connected</option><option value="on">Always</option><option value="off">Hidden</option></select></span></label>
-        <label class="setting"><span class="name">Gyro<small>For controllers with motion sensors (Steam, PlayStation, Switch). <b>Tilt</b> leans the controller picture as you turn it; <b>Aim</b> adds a box with a dot that follows the turn and leaves a trail.</small></span>
-          <span class="ctl"><select id="gyro"><option value="off">Off</option><option value="tilt">Tilt the picture</option><option value="aim">Aim dot</option><option value="both">Both</option></select></span></label>
+        <div class="setting"><div class="name"><div class="nameRow"><label for="gyro">Gyro</label><button type="button" class="scope" data-scope="gyro" aria-pressed="false" title="Click to switch between all presets and just this preset">this preset</button></div><small>For controllers with motion sensors (Steam, PlayStation, Switch). <b>Tilt</b> leans the controller picture as you turn it; <b>Aim</b> adds a box with a dot that follows the turn and leaves a trail. Only shown where the controller is. The Stream Deck gyro buttons switch this to <i>all presets</i>.</small></div>
+          <span class="ctl"><select id="gyro"><option value="off">Off</option><option value="tilt">Tilt the picture</option><option value="aim">Aim dot</option><option value="both">Both</option></select></span></div>
         <label class="setting"><span class="name">Gyro sensitivity<small>How far the picture leans and how fast the dot moves for the same turn.</small></span>
           <span class="ctl"><input type="range" id="gsens" min="0.2" max="4" step="0.1"><span class="val" id="gsensV"></span></span></label>
         <label class="setting"><span class="name">Trackpad click pressure<small>How hard you press a trackpad before it counts as a click.</small></span>
@@ -229,12 +242,18 @@
 </main>
 
 <script src="keyboard.js"></script>
+<dialog id="sdDlg">
+  <div class="dlgHead"><h3>Stream Deck / hotkey URLs</h3><button type="button" id="sdClose" class="chip">Close</button></div>
+  <div class="muted dlgNote">Each one is a plain GET request. In Stream Deck use the built-in <b>Website</b> action with <b>"Access in background"</b> ticked
+    (or an API plugin such as BarRaider's API Ninja). The gyro ones switch the gyro displays on or off for <b>every preset</b> (they set Gyro to "all presets"); the aim dot and tilt only show where the controller is shown.</div>
+  <div id="sdList"></div>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const ALL_VKS = KB.ALL.map(k => k.vk);
 let presets = [];      // as last saved
 let active = null;     // name of the active preset
-let settings = { swapSide: false, opacity: 1, fill: .8, accent: '#38bdf8', scope: { swapSide: true, opacity: false, fill: false, accent: false } };   // shared values + which settings are shared   // hardware settings shared by all presets (saved separately from presets)
+let settings = { swapSide: false, opacity: 1, fill: .8, accent: '#38bdf8', gyro: 'off', scope: { swapSide: true, opacity: false, fill: false, accent: false, gyro: false } };   // shared values + which settings are shared   // hardware settings shared by all presets (saved separately from presets)
 let cur = null;        // working copy of the selected preset
 let origName = null;   // name it was loaded/saved under (for renames)
 let saveTimer = null;
@@ -288,7 +307,7 @@ function syncControls() {
   $('name').value = cur.name;
   $('mouse').value = cur.mouse ? '1' : '0';
   $('controller').value = cur.controller || 'auto';
-  $('gyro').value = cur.gyro || 'off';
+  $('gyro').value = valueOf('gyro') || 'off';
   $('pad').value = cur.pad;
   $('accent').value = valueOf('accent');
   document.querySelectorAll('#agrid button').forEach(b => b.classList.toggle('on', b.dataset.a === cur.align));
@@ -307,7 +326,7 @@ function syncControls() {
 }
 $('name').addEventListener('input', e => { cur.name = e.target.value.trim() || cur.name; renderUrl(); schedSave(); });
 $('controller').onchange = e => { cur.controller = e.target.value; changed(); };
-$('gyro').onchange = e => { cur.gyro = e.target.value; changed(); };
+$('gyro').onchange = e => setValue('gyro', e.target.value);
 $('mouse').onchange = e => { cur.mouse = e.target.value === '1'; changed(); };
 $('pad').onchange = e => { cur.pad = e.target.value; changed(); };
 let settingsTimer = null;
@@ -475,19 +494,57 @@ const urlFor = name => `${location.origin}/?preset=${encodeURIComponent(name)}`;
 function renderUrl() {
   $('urlBase').textContent = `${location.origin}/`;
   $('url').textContent = urlFor(cur.name);
-  $('urlSwitch').textContent = `${location.origin}/api/switch/${encodeURIComponent(cur.name)}`;
-  $('urlNext').textContent = `${location.origin}/api/next`;
-  $('urlPrev').textContent = `${location.origin}/api/prev`;
+  if ($('sdDlg').open) renderSd();                       // the "this preset" address follows the selected preset
   const isActive = cur.name === active;
   $('btnLive').disabled = isActive;
   $('btnLive').textContent = isActive ? 'This is the active preset' : 'Make this the active preset';
   $('liveNote').textContent = isActive ? 'The base OBS URL is showing this preset.' : `The base OBS URL currently shows "${active}".`;
 }
-document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
-  const el = $(b.dataset.copy);
-  try { await navigator.clipboard.writeText(el.textContent); status('Copied ✓'); }
-  catch { const r = document.createRange(); r.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(r); status('Press Ctrl+C to copy'); }
-});
+async function copyText(text, el) {
+  try { await navigator.clipboard.writeText(text); status('Copied ✓'); return true; }
+  catch { const r = document.createRange(); r.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(r); status('Press Ctrl+C to copy'); return false; }
+}
+document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copyText($(b.dataset.copy).textContent, $(b.dataset.copy)));
+
+// ---- the Stream Deck / hotkey URL list (a pop-up, so the page itself stays uncluttered)
+function sdRows() {
+  const o = location.origin, name = encodeURIComponent(cur.name);
+  return [
+    ['Presets'],
+    ['Switch to this preset', `${o}/api/switch/${name}`, cur.name],
+    ['Next preset', `${o}/api/next`, 'wraps around'],
+    ['Previous preset', `${o}/api/prev`, 'wraps around'],
+    ['Preset by number', `${o}/api/switch/2`, 'change the 2 to any position'],
+    ['Gyro (all presets)'],
+    ['Tilt picture: toggle', `${o}/api/gyro/tilt/toggle`],
+    ['Tilt picture: on', `${o}/api/gyro/tilt/on`],
+    ['Tilt picture: off', `${o}/api/gyro/tilt/off`],
+    ['Aim dot: toggle', `${o}/api/gyro/aim/toggle`],
+    ['Aim dot: on', `${o}/api/gyro/aim/on`],
+    ['Aim dot: off', `${o}/api/gyro/aim/off`],
+    ['Both: toggle', `${o}/api/gyro/toggle`, 'off if either is showing'],
+    ['Both: on', `${o}/api/gyro/on`],
+    ['Both: off', `${o}/api/gyro/off`],
+    ['Report gyro state', `${o}/api/gyro`, 'just looks'],
+  ];
+}
+function renderSd() {
+  const list = $('sdList'); list.textContent = '';
+  for (const [label, url, note] of sdRows()) {
+    if (!url) { const h = document.createElement('h4'); h.textContent = label; list.appendChild(h); continue; }
+    const row = document.createElement('div'); row.className = 'sdRow';
+    const l = document.createElement('div'); l.className = 'lbl'; l.textContent = label;
+    if (note) { const n = document.createElement('small'); n.textContent = note; l.appendChild(n); }
+    const u = document.createElement('div'); u.className = 'url'; u.textContent = url;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Copy';
+    b.onclick = async () => { if (await copyText(url, u)) { b.textContent = 'Copied ✓'; setTimeout(() => b.textContent = 'Copy', 1400); } };
+    row.append(l, u, b); list.appendChild(row);
+  }
+}
+$('btnSd').onclick = () => { renderSd(); $('sdDlg').showModal(); };
+$('sdClose').onclick = () => $('sdDlg').close();
+$('sdDlg').addEventListener('click', e => { if (e.target === $('sdDlg')) $('sdDlg').close(); });       // a click on the dark backdrop closes it
+if (location.hash === '#streamdeck') setTimeout(() => $('btnSd').click(), 400);                       // handy for a direct link
 $('btnLive').onclick = () => flushThen(async () => {
   const r = await fetch('/api/switch/' + encodeURIComponent(origName));
   if (!r.ok) { status(await r.text(), true); return; }

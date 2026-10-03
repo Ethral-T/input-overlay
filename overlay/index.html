@@ -165,7 +165,7 @@ function withOverrides(c) {
 }
 
 let cfg = normalize();
-let settings = { swapSide: false, opacity: 1, fill: .8, theme: 'default', accent: '#38bdf8', scope: { swapSide: true, opacity: false, fill: false, theme: true, accent: false } };   // shared values + which settings are shared        // hardware settings shared by every preset
+let settings = { swapSide: false, opacity: 1, fill: .8, theme: 'default', accent: '#38bdf8', gyro: 'off', scope: { swapSide: true, opacity: false, fill: false, theme: true, accent: false, gyro: false } };   // shared values + which settings are shared        // hardware settings shared by every preset
 const held = {};                          // mouse buttons currently down, by event name
 let keyEls = new Map();
 const down = new Set();                       // keys currently held, so a re-render keeps them lit
@@ -175,7 +175,7 @@ let padConnected = false, padLoading = false, buildId = null;
 const isShared = k => !!(settings.scope && settings.scope[k]);
 function effective(c) {
   const e = { ...c };
-  for (const k of ['opacity', 'fill', 'theme', 'accent']) if (isShared(k) && !q.has(k) && settings[k] !== undefined) e[k] = settings[k];
+  for (const k of ['opacity', 'fill', 'theme', 'accent', 'gyro']) if (isShared(k) && !q.has(k) && settings[k] !== undefined) e[k] = settings[k];
   return e;
 }
 function applyConfig(c) {
@@ -200,7 +200,8 @@ function applyConfig(c) {
   updatePadVisibility();
   updateGyro();
 }
-function updatePadVisibility() { show('pad', cfg.pad === 'on' || (cfg.pad === 'auto' && (padConnected || draft))); }
+const padVisible = () => cfg.pad === 'on' || (cfg.pad === 'auto' && (padConnected || draft));
+function updatePadVisibility() { show('pad', padVisible()); }
 
 // ---------------------------------------------------------------- keyboard
 function renderKeyboard() {
@@ -266,7 +267,7 @@ drawMotion();
 // A gyroscope gives speed, not position, so both displays integrate it and let it relax back to the middle:
 //   tilt - the controller picture leans the way the controller is turned (CSS 3D on #pad);
 //   aim  - a dot in a box moves with the turn and drifts back, leaving a fading trail like the mouse dot.
-const gyro = { have: false, rate: [0, 0, 0], pitch: 0, yaw: 0, roll: 0, ax: 0, ay: 0, last: 0, trail: [], tilted: false };
+const gyro = { have: false, rate: [0, 0, 0], prev: [0, 0, 0], bias: [0, 0, 0], still: 0, pitch: 0, yaw: 0, roll: 0, ax: 0, ay: 0, last: 0, trail: [], tilted: false };
 const GY = { pitch: 1, yaw: 1, roll: 1, aimX: -1, aimY: -1 };    // +1 / -1: flip one if that direction comes out the wrong way round
 const GYRO_NOISE = 0.04;                                           // rad/s below this counts as still
 const wantTilt = () => cfg.gyro === 'tilt' || cfg.gyro === 'both';
@@ -274,7 +275,8 @@ const wantAim = () => cfg.gyro === 'aim' || cfg.gyro === 'both';
 const gyroBox = document.getElementById('gyroBox'), gcx = document.getElementById('gyroCv').getContext('2d');
 gcx.scale(2, 2);                                                   // the canvas is drawn at 2x so it stays sharp
 function updateGyro() {
-  gyroBox.classList.toggle('hidden', !(wantAim() && ((gyro.have && padConnected) || draft)));
+  // the aim box is part of the controller display: it is only shown where the controller is (a preset that hides the controller shows no gyro)
+  gyroBox.classList.toggle('hidden', !(wantAim() && padVisible() && ((gyro.have && padConnected) || draft)));
   if (!wantTilt() || !gyro.have) {                                 // not tilting: put the picture back
     if (gyro.tilted) { document.getElementById('pad').style.transform = ''; gyro.tilted = false; }
     gyro.pitch = gyro.yaw = gyro.roll = 0;
@@ -283,7 +285,15 @@ function updateGyro() {
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 function drawGyro(now) {
   const dt = Math.min(0.05, Math.max(0, (now - gyro.last) / 1000) || 0.016); gyro.last = now;
-  const [rp, ry, rr] = gyro.rate.map(v => Math.abs(v) < GYRO_NOISE ? 0 : v);
+  // Every gyroscope reports a small constant offset at rest (this one reported 0.27 rad/s), which would read as a steady turn and make the picture
+  // lean and the dot drift for ever. A hand always trembles, so when the readings have not changed for a moment the controller is at rest (or
+  // not sending): the current reading is taken as zero. While it is really turning the reading keeps changing, so the offset is left alone.
+  const raw = gyro.rate;
+  const moved = Math.max(Math.abs(raw[0] - gyro.prev[0]), Math.abs(raw[1] - gyro.prev[1]), Math.abs(raw[2] - gyro.prev[2]));
+  gyro.prev = raw.slice();
+  gyro.still = moved < 0.03 ? gyro.still + dt : 0;
+  if (gyro.still > 0.7) for (let i = 0; i < 3; i++) gyro.bias[i] += (raw[i] - gyro.bias[i]) * Math.min(1, dt * 4);
+  const [rp, ry, rr] = raw.map((v, i) => v - gyro.bias[i]).map(v => Math.abs(v) < GYRO_NOISE ? 0 : v);
   const k = (cfg.gsens || 1), deg = 180 / Math.PI;
   if (wantTilt() && gyro.have) {
     const keep = Math.exp(-dt / 1.2);                              // leaks back to level in about a second
@@ -328,6 +338,7 @@ const TRAIL = 14;
 // is which input; a theme can ship its own file with the same group names.
 const LAYERED = {
   steam: {
+    outline: ['Bumper--L-', 'Bumper--R-'],               // parts the theme outline goes around (they sit on the body's edge)
     buttons: [['south', 'A-Button'], ['east', 'B-Button'], ['west', 'X-Button'], ['north', 'Y-Button'],
               ['up', 'D-Pad-Up'], ['down', 'D-Pad-Down'], ['left', 'D-Pad-Left'], ['right', 'D-Pad-Right'],
               ['back', 'Select-Button'], ['start', 'Menu---Pause-Button'], ['guide', 'Steam-Button'], ['misc1', 'Triple-Dot-Button'],
@@ -341,6 +352,7 @@ const LAYERED = {
     trackpads: ['Trackpad--L-', 'Trackpad--R-'],
   },
   xbox: {
+    outline: ['Bumper--L-', 'Bumper--R-'],               // parts the theme outline goes around (they sit on the body's edge)
     buttons: [['south', 'A-Button'], ['east', 'B-Button'], ['west', 'X-Button'], ['north', 'Y-Button'],
               ['up', 'D-Pad-Up'], ['down', 'D-Pad-Down'], ['left', 'D-Pad-Left'], ['right', 'D-Pad-Right'],
               ['back', 'Select-Button'], ['start', 'Start-Button'], ['guide', 'Xbox-Home-Button'],
@@ -352,6 +364,7 @@ const LAYERED = {
   // right, Square left, Triangle top. Share/Create and Options are SDL's back/start. The touchpad is a tracked pad (finger dot, no tilt, wide)
   // that lights when it is clicked in, not by pressure.
   ps4: {
+    outline: ['Bumper--L-', 'Bumper--R-'],               // parts the theme outline goes around (they sit on the body's edge)
     buttons: [['south', 'X-Button'], ['east', 'Circle-Button'], ['west', 'Square-Button'], ['north', 'Triangle-Button'],
               ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
               ['back', 'Share-Button'], ['start', 'Options-Button'], ['guide', 'Home-Button'], ['touchpad', 'Touch-Pad'],
@@ -361,6 +374,7 @@ const LAYERED = {
     trackpads: ['Touch-Pad'], trackpadWide: true, touchpadClick: true,
   },
   ps5: {
+    outline: ['Bumper--L-', 'Bumper--R-'],               // parts the theme outline goes around (they sit on the body's edge)
     buttons: [['south', 'X-Button'], ['east', 'Circle-Button'], ['west', 'Square-Button'], ['north', 'Triangle-Button'],
               ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
               ['back', 'Select-Button'], ['start', 'Menu-Button'], ['guide', 'PlayStation-Button'], ['touchpad', 'Touch-Pad'],
@@ -373,6 +387,7 @@ const LAYERED = {
   // names the bottom one B: B south, A east, Y west, X north. Plus/Minus came out of the art editor as `_--Button` / `_--Button1`.
   // ZL/ZR are digital on this pad (SDL reports them as 0 or full), so those bars jump instead of filling gradually.
   switch: {
+    outline: ['Bumper--L-', 'Bumper--R-'],               // parts the theme outline goes around (they sit on the body's edge)
     buttons: [['south', 'B-Button'], ['east', 'A-Button'], ['west', 'Y-Button'], ['north', 'X-Button'],
               ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
               ['back', '_--Button1'], ['start', '_--Button'], ['guide', 'Home-Button'], ['misc1', 'Screenshot-Button'],
@@ -382,6 +397,7 @@ const LAYERED = {
   },
   // Switch 2 Pro Controller: the same layout plus the C button and the two back paddles (GL, GR).
   switch2: {
+    outline: ['Bumper--L-', 'Bumper--R-'],               // parts the theme outline goes around (they sit on the body's edge)
     buttons: [['south', 'B-Button'], ['east', 'A-Button'], ['west', 'Y-Button'], ['north', 'X-Button'],
               ['up', 'DPad-Up'], ['down', 'DPad-Down'], ['left', 'DPad-Left'], ['right', 'DPad-Right'],
               ['back', '_--Button1'], ['start', '_--Button'], ['guide', 'Home-Button'], ['misc1', 'Screenshot-Button'],
@@ -393,6 +409,7 @@ const LAYERED = {
   // GameCube (through SDL's GameCube adapter mapping): Z arrives as the right shoulder, the C-stick is the right stick, and there is no
   // Back/Guide. The face buttons are positional: A south, B west, X east, Y north.
   gamecube: {
+    outline: ['Z-Button'],                           // the Z tab sits on the body's edge: the theme outline goes around it
     buttons: [['south', 'A-Button'], ['west', 'B-Button'], ['east', 'X-Button'], ['north', 'Y-Button'],
               ['up', 'D-Pad-Up'], ['down', 'D-Pad-Down'], ['left', 'D-Pad-Left'], ['right', 'D-Pad-Right'],
               ['start', 'Start-Button'], ['rb', 'Z-Button']],
@@ -444,8 +461,22 @@ function resetLayered() {
   padSvg.querySelectorAll('defs clipPath[id^="lay-"]').forEach(c => c.remove());
   pads.length = 0; layer = null; bodyEl = null;
 }
+// Product of the transforms of the groups a part sits inside (outermost first), up to the artwork group: the frame the artwork draws it in.
+function wrapMatrix(el) {
+  let m = new DOMMatrix();
+  for (let n = el.parentNode; n && n !== icon; n = n.parentNode) {
+    const t = n.transform && n.transform.baseVal;
+    if (t && t.numberOfItems) { const c = t.consolidate().matrix; m = new DOMMatrix([c.a, c.b, c.c, c.d, c.e, c.f]).multiply(m); }
+  }
+  return m;
+}
+const matrixAttr = m => `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`;
+// The trigger bars are drawn this many art units higher than the file has them, so they sit clear of the bumpers. A skin can override it
+// with `triggerLift` in its LAYERED row (0 = draw them exactly where the file puts them).
+const TRIGGER_LIFT = 16;
 function buildLayered(name, txt) {
   const L = LAYERED[name];
+  const lift = L.triggerLift ?? TRIGGER_LIFT;
   const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
   const vb = parseViewBox(r);
   resetLayered();
@@ -457,7 +488,8 @@ function buildLayered(name, txt) {
   const partBox = id => {                                    // a part with a clipped label inside is measured by its outline
     const el = find(ms, id); if (!el) return null;
     const outline = el.querySelector('[clip-path]') ? el.querySelector(':scope > circle, :scope > rect, :scope > path') : null;
-    return rootBox(outline || el, vb);
+    const b = rootBox(outline || el, vb);
+    return lift && Object.values(L.triggers).includes(id) ? { ...b, y: b.y - lift } : b;      // measured where the trigger will be drawn
   };
   const ids = [...L.buttons.map(b => b[1]), ...Object.values(L.triggers), L.sticks.l, L.sticks.r, ...(L.trackpads || [])];
   const boxes = ids.map(partBox).filter(Boolean);
@@ -475,17 +507,37 @@ function buildLayered(name, txt) {
   // 2) build the real thing
   for (const n of [...r.childNodes]) icon.appendChild(document.importNode(n, true));
   bodyEl = [...icon.children].find(e => e.tagName === 'use') || null;
+  // lift the trigger bars: a wrapper that moves them up by `lift` in screen units (their own frame may be scaled or rotated, so the shift is
+  // converted into it). The lit copy follows because it repeats every wrapper's transform.
+  if (lift) for (const id of Object.values(L.triggers)) {
+    const g = find(icon, id); if (!g) continue;
+    const inv = wrapMatrix(g).inverse();
+    const w = mk('g', { transform: `translate(${(-lift * inv.c).toFixed(3)} ${(-lift * inv.d).toFixed(3)})` });
+    g.parentNode.insertBefore(w, g); w.appendChild(g);
+  }
   if (bodyEl) {
     bodyEl.classList.add('bodyMain');
-    // a copy of the body drawn just behind it at full opacity, hidden unless a theme turns it on: it is how a theme gives the controller an
-    // outline that stays solid while the body's own fill is see-through
-    const ring = bodyEl.cloneNode(true); ring.removeAttribute('opacity'); ring.classList.remove('bodyMain'); ring.classList.add('bodyRing');
+    // The silhouette a theme can outline, drawn just behind the body at full opacity and hidden unless a theme turns it on: the body plus the
+    // parts that sit on its edge (L.outline, the bumpers), so the outline goes around them instead of being covered by them. It stays solid
+    // while the body's own fill is see-through.
+    const ring = mk('g', { class: 'bodyRing' });
+    const copy = bodyEl.cloneNode(true); copy.removeAttribute('opacity'); copy.classList.remove('bodyMain'); ring.appendChild(copy);
+    for (const id of L.outline || []) {
+      const src = find(icon, id); if (!src) continue;
+      const u = mk('use', { href: '#' + id }, ring), m = wrapMatrix(src);
+      if (!m.isIdentity) u.setAttribute('transform', matrixAttr(m));
+    }
     icon.insertBefore(ring, bodyEl);
   }
   applyBodyFill();
-  const overlay = (id, parent = fx, clip) => {
-    const u = mk('use', { href: '#' + id, filter: 'url(#tint)', opacity: 0 }, parent);
-    if (clip) u.setAttribute('clip-path', `url(#${clip})`);
+  // The lit copy of a part. If the art put the part inside a transformed wrapper group (an editor does that when you scale or rotate it), the
+  // wrapper's transform has to be repeated on the copy, because a <use> only carries the part's own transform. A clip (triggers) goes on a
+  // plain group around it, so the clip stays in the same coordinates as the measured box.
+  const overlay = (id, parent = fx, clip, keepOwnFrame) => {
+    const src = find(icon, id), m = src && !keepOwnFrame ? wrapMatrix(src) : null;
+    const u = mk('use', { href: '#' + id, filter: 'url(#tint)', opacity: 0 });
+    if (m && !m.isIdentity) u.setAttribute('transform', matrixAttr(m));
+    if (clip) mk('g', { 'clip-path': `url(#${clip})` }, parent).appendChild(u); else parent.appendChild(u);
     return u;
   };
   layer = { name, parts: [], triggers: [], sticks: [], dead: L.triggerDead || 0 };
@@ -513,7 +565,8 @@ function buildLayered(name, txt) {
     const id = L.sticks[side], g = find(icon, id); if (!g) continue;
     const w = mk('g', {}); g.parentNode.insertBefore(w, g); w.appendChild(g);
     const fxw = mk('g', {}, fx);
-    layer.sticks.push({ side, w, fxw, ov: overlay(id, fxw), travel: L.sticks.travel, press: side === 'l' ? 'ls' : 'rs' });
+    // the artwork's wrapper moves in the part's own (possibly scaled) frame, so the lit copy is moved the same way: wrapper matrix, then the shift
+    layer.sticks.push({ side, w, fxw, wrap: wrapMatrix(g), ov: overlay(id, fxw, null, true), travel: L.sticks.travel, press: side === 'l' ? 'ls' : 'rs' });
   }
   // trackpads: pressure tint + a finger dot with a short fading trail, in a frame tilted like the pad is drawn
   (L.trackpads || []).forEach((id, i) => {
@@ -550,7 +603,8 @@ function setStick(s, x, y, pressed) {
   const m = Math.hypot(nx, ny);
   if (m < .08) { nx = ny = 0; } else if (m > 1) { nx /= m; ny /= m; }
   const tr = `translate(${nx * s.travel} ${ny * s.travel})`;
-  s.w.setAttribute('transform', tr); s.fxw.setAttribute('transform', tr);
+  s.w.setAttribute('transform', tr);
+  s.fxw.setAttribute('transform', s.wrap && !s.wrap.isIdentity ? matrixAttr(s.wrap.translate(nx * s.travel, ny * s.travel)) : tr);
   s.ov.setAttribute('opacity', pressed ? 1 : 0);
 }
 function applyLayered(p) {
@@ -587,7 +641,7 @@ function debugPad(p) {
   }
   prevBits = cur; while (dbgLog.length > 12) dbgLog.shift();
   const f = `skin=${skin}  type=${p.ty}  name=${p.nm}\n` + (p.t || []).map((t, i) => `pad${i}: ${t[0] ? 'touch' : '-----'} pressure ${t[3]}`).join('   ') + '\n' +
-            (p.g ? `gyro (rad/s) pitch ${p.g[0].toFixed(2)}  yaw ${p.g[1].toFixed(2)}  roll ${p.g[2].toFixed(2)}` : 'gyro: not reported by this controller');
+            (p.g ? `gyro (rad/s) pitch ${p.g[0].toFixed(2)}  yaw ${p.g[1].toFixed(2)}  roll ${p.g[2].toFixed(2)}   zero point ${gyro.bias.map(v => v.toFixed(2)).join(' ')}` : 'gyro: not reported by this controller');
   document.getElementById('dbg').textContent = f + '\n' + (dbgLog.length ? dbgLog.join('\n') : 'press a button...');
 }
 
@@ -598,6 +652,7 @@ function onPad(p) {
   padConnected = !!p.c;
   gyro.have = !!(p.c && p.g);                              // the server sends p.g only while the pad reports a gyroscope
   gyro.rate = gyro.have ? p.g : [0, 0, 0];
+  if (!gyro.have) gyro.bias = [0, 0, 0];
   updatePadVisibility();
   updateGyro();
   if (cfg.pad !== 'off') syncSkin();

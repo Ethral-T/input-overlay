@@ -506,6 +506,47 @@ async def api_switch(request):
         raise web.HTTPNotFound(text=f"no preset called {ref!r}")
 
 
+def gyro_state(cfg):
+    """The gyro mode the active preset shows right now: the shared (all presets) value if Gyro is shared, else the preset's own."""
+    mode = cfg.settings["gyro"] if cfg.settings["scope"].get("gyro") else cfg.presets[cfg.active].get("gyro", "off")
+    return mode, mode in ("tilt", "both"), mode in ("aim", "both")
+
+
+def set_gyro(kind, action):
+    """Turn the gyro tilt and/or aim display on, off or over (toggle) for EVERY preset: it sets the shared "all presets" gyro value (and marks
+    Gyro as shared), saves it, and tells the overlays. kind: "tilt", "aim" or "all" (both); action: "on", "off" or "toggle"."""
+    cfg = config.shared()
+    with cfg.lock:
+        _, tilt, aim = gyro_state(cfg)
+        if kind == "all" and action == "toggle":          # "toggle both": off if either is showing, otherwise both on
+            action = "off" if tilt or aim else "on"
+        change = lambda cur: {"on": True, "off": False, "toggle": not cur}[action]
+        if kind in ("tilt", "all"):
+            tilt = change(tilt)
+        if kind in ("aim", "all"):
+            aim = change(aim)
+        mode = "both" if tilt and aim else "tilt" if tilt else "aim" if aim else "off"
+        cfg.put_settings({**cfg.settings, "gyro": mode, "scope": {**cfg.settings["scope"], "gyro": True}})
+    hub.emit({"reload": 1})
+    print(f"[gyro] all presets: {mode}")
+    return {"applies_to": "all presets", "gyro": mode, "tilt": tilt, "aim": aim}
+
+
+async def api_gyro(request):
+    """/api/gyro (report), /api/gyro/on|off|toggle (both displays), /api/gyro/tilt[/on|off|toggle], /api/gyro/aim[/on|off|toggle]"""
+    kind, action = request.match_info.get("kind"), request.match_info.get("action")
+    if not kind:
+        cfg = request.app["config"]
+        mode, tilt, aim = gyro_state(cfg)
+        return web.json_response({"applies_to": "all presets" if cfg.settings["scope"].get("gyro") else "each preset on its own",
+                                  "gyro": mode, "tilt": tilt, "aim": aim})
+    if kind in ("on", "off", "toggle") and not action:
+        kind, action = "all", kind
+    if kind not in ("tilt", "aim", "all") or (action or "toggle") not in ("on", "off", "toggle"):
+        raise web.HTTPNotFound(text="use /api/gyro/{on|off|toggle} or /api/gyro/{tilt|aim}/{on|off|toggle}")
+    return web.json_response(set_gyro(kind, action or "toggle"))
+
+
 async def api_next(request):
     return web.json_response({"active": set_active(step=1)})
 
@@ -574,7 +615,9 @@ async def main(args):
                     web.get("/themes/{id}/{path:.+}", theme_file),
                     web.put("/api/presets/{name}", api_put), web.delete("/api/presets/{name}", api_delete),
                     web.route("*", "/api/switch", api_switch), web.route("*", "/api/switch/{name}", api_switch),
-                    web.route("*", "/api/next", api_next), web.route("*", "/api/prev", api_prev)])
+                    web.route("*", "/api/next", api_next), web.route("*", "/api/prev", api_prev),
+                    web.route("*", "/api/gyro", api_gyro), web.route("*", "/api/gyro/{kind}", api_gyro),
+                    web.route("*", "/api/gyro/{kind}/{action}", api_gyro)])
     app.router.add_static("/", ROOT)
     runner = web.AppRunner(app)
     await runner.setup()

@@ -22,8 +22,11 @@ Switching the active preset:
   | `/api/switch/<name or number>` | activate a preset by name (case-insensitive) or 1-based position, e.g. `/api/switch/2` |
   | `/api/next`, `/api/prev` | cycle through presets (wraps around) |
   | `/api/switch` | just report the active preset |
+  | `/api/gyro/tilt/toggle`, `/api/gyro/aim/toggle` | flip the gyro tilt picture / aim dot on or off for **every preset** (it sets Gyro to *all presets*, saved); use `on` or `off` instead of `toggle` to set it |
+  | `/api/gyro/on`, `/api/gyro/off`, `/api/gyro/toggle` | both gyro displays together |
+  | `/api/gyro` | just report the gyro state: `{"applies_to": "all presets", "gyro": "both", "tilt": true, "aim": true}` |
 
-  Each returns `{"active": "<name>"}`. In Stream Deck, use an action that sends a GET in the background (the built-in
+  The preset ones return `{"active": "<name>"}`. In Stream Deck, use an action that sends a GET in the background (the built-in
   **Website** action with "Access in background" ticked, or an API plugin such as BarRaider's API Ninja). The Settings page
   lists the exact URLs with Copy buttons. These requests are rejected if a browser marks them cross-site, so a web page can't flip your preset.
 
@@ -127,7 +130,7 @@ real test: use `?debug=1` to see which input each button sends, then change its 
 ### Gyro
 
 Controllers with motion sensors (PlayStation 4 and 5, Switch Pro, Steam Controller, where SDL reports them) can show their gyroscope. Choose it in
-Settings, Controller, **Gyro** (per preset; off by default), or with `?gyro=tilt|aim|both`:
+Settings, Controller, **Gyro** (off by default; it has the usual *all presets / this preset* tag, and the Stream Deck URLs set it to all presets), or with `?gyro=tilt|aim|both`:
 
 - **Tilt the picture**: the controller artwork leans the way you turn the real one, then settles back to level when you stop.
 - **Aim dot**: a box beside the controller with a dot that follows the turn and leaves a fading trail, then drifts back to the middle.
