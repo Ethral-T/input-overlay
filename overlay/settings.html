@@ -269,6 +269,7 @@ async function load(selectName) {
   try {
     const data = await (await api('')).json();
     presets = data.presets; active = data.active; settings = data.settings;
+    adopted = clone(settings);
     dirtySettings.clear(); dirtyScope.clear();     // we just adopted the server's copy, so nothing is pending
     renderList();
     select(presets.find(p => p.name === selectName) || presets[0]);
@@ -346,11 +347,20 @@ $('pad').onchange = e => { cur.pad = e.target.value; changed(); };
 let settingsTimer = null;
 // Which shared settings (and "all presets" tags) this page changed since the last save. Something else (a Stream Deck gyro URL) can change
 // the shared settings while this page is open, so we only send back what the user actually touched, never our whole (possibly stale) copy.
+// A setting counts as touched two ways: a handler marks it explicitly, or saveSettings finds it differs from `adopted`, the server copy we
+// last adopted. Diffing against that adopted copy (not a fresh fetch) is safe: a value changed elsewhere differs from the fresh fetch but
+// not from `adopted`, so it is never mistaken for our edit and sent back stale. Only values we ourselves assigned can differ from it.
 const dirtySettings = new Set(), dirtyScope = new Set();
+let adopted = null;                          // clone of the server's shared settings as of the last load/save
 function saveSettings() {                    // settings that apply to every preset are saved separately from presets
   status('Saving…'); clearTimeout(settingsTimer);
   settingsTimer = setTimeout(async () => {
     try {
+      // A handler may have just assigned settings[k] without marking it; catch those by comparing with what we last adopted.
+      if (adopted) {
+        for (const k in settings) if (k !== 'scope' && settings[k] !== adopted[k]) dirtySettings.add(k);
+        for (const k in settings.scope) if (settings.scope[k] !== adopted.scope[k]) dirtyScope.add(k);
+      }
       const sentSettings = [...dirtySettings], sentScope = [...dirtyScope];
       // Fetch the server's current copy first and lay only our changes on top of it, so we don't revert changes made elsewhere.
       const data = await (await api('')).json();
@@ -361,6 +371,7 @@ function saveSettings() {                    // settings that apply to every pre
       if (!r.ok) { status(await r.text() || 'Could not save', true); return; }
       const local = settings;
       settings = await r.json();                // adopt what the server stored
+      adopted = clone(settings);                // remember it before the pending keys are re-applied below
       sentSettings.forEach(k => dirtySettings.delete(k)); sentScope.forEach(k => dirtyScope.delete(k));
       // Anything changed while the request was in flight is still waiting for its own save; keep showing it.
       dirtySettings.forEach(k => settings[k] = local[k]); dirtyScope.forEach(k => settings.scope[k] = local.scope[k]);
