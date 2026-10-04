@@ -1,7 +1,7 @@
 """Preset storage. Presets live in %APPDATA%\\InputOverlay\\config.json.
 
 A preset is one overlay "variant":
-  {"keyboard": {"mode": "full" | "custom" | "off", "keys": [<windows vk codes>], "sizes": {"<vk>": <width in key units>}},
+  {"keyboard": {"mode": "full" | "custom" | "off", "keys": [<windows vk codes>], "sizes": {"<vk>": <width in key units>}, "numpad": bool},
    "mouse": bool, "pad": "auto" | "on" | "off",
    "theme": "<theme id>" ("default" = Classic; see themes.py),
    "controller": "auto" | "steam" | "xbox" | "ps4" | "ps5" | "switch" | "switch2" | "gamecube" (artwork; auto picks from the connected pad),
@@ -10,7 +10,9 @@ A preset is one overlay "variant":
    "accent": "#rrggbb" (used when Highlight colour is "this preset" scoped), "opacity": 0.1..1 (whole overlay), "fill": 0..1 (key/mouse/controller background), "scale": float, "sens": float, "tpt": float, "tprot": float,
    "gyro": "off" | "tilt" | "aim" | "both" (how a controller's gyroscope is shown: the picture tilts and/or an aim dot with a trail; used when
            Gyro is "this preset" scoped, otherwise the shared value in settings applies to every preset),
-   "gsens": float (gyro sensitivity)}
+   "gsens": float (gyro sensitivity),
+   "layout": null | {"kb": {"x", "y"}, "mouse": ..., "pad0": ..., "gyro0": ..., ...} (Free layout: where each piece sits; null = in a row),
+   "pads": 1..4 (how many controllers to show at once; they are the connected ones in order), "playerColors": bool (a different highlight colour for players 2-4)}
 """
 import json
 import os
@@ -36,6 +38,22 @@ SEED = [
 ]
 
 
+LAYOUT_KEYS = re.compile(r"^(kb|mouse|pad[0-3]|gyro[0-3])$")
+
+
+def clean_layout(v):
+    """Free layout: None (the pieces sit in a row) or {piece: {"x": px, "y": px}} for kb, mouse, pad0-3 and gyro0-3."""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    for k, pos in v.items():
+        if LAYOUT_KEYS.match(str(k)) and isinstance(pos, dict):
+            xy = [pos.get("x"), pos.get("y")]
+            if all(isinstance(n, (int, float)) and not isinstance(n, bool) and abs(n) < 20000 for n in xy):
+                out[k] = {"x": round(float(xy[0]), 1), "y": round(float(xy[1]), 1)}
+    return out
+
+
 def clean(p):
     """Coerce arbitrary JSON into a valid preset (never trust the file or the API caller)."""
     p = p if isinstance(p, dict) else {}
@@ -58,7 +76,7 @@ def clean(p):
 
     accent = p.get("accent") if isinstance(p.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", p["accent"]) else "#38bdf8"
     return {
-        "keyboard": {"mode": mode, "keys": keys, "sizes": sizes},
+        "keyboard": {"mode": mode, "keys": keys, "sizes": sizes, "numpad": bool(kb.get("numpad", False))},
         "mouse": bool(p.get("mouse", True)),
         "swapSide": bool(p.get("swapSide", False)),
         "controller": {"playstation": "ps5"}.get(p.get("controller"), p.get("controller")) if {"playstation": "ps5"}.get(p.get("controller"), p.get("controller")) in CONTROLLER_STYLES else "auto",   # "playstation" is the old name
@@ -74,6 +92,9 @@ def clean(p):
         "tprot": num("tprot", 9.0, -45.0, 45.0),
         "gyro": p.get("gyro") if p.get("gyro") in ("off", "tilt", "aim", "both") else "off",
         "gsens": num("gsens", 1.0, 0.1, 5.0),
+        "pads": int(num("pads", 1, 1, 4)),
+        "layout": clean_layout(p.get("layout")),
+        "playerColors": bool(p.get("playerColors", True)),
     }
 
 
@@ -113,6 +134,7 @@ def clean_settings(s):
         "theme": clean_theme(s.get("theme")),
         "accent": s.get("accent") if isinstance(s.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["accent"]) else "#38bdf8",
         "gyro": s.get("gyro") if s.get("gyro") in ("off", "tilt", "aim", "both") else "off",
+        "updateCheck": bool(s.get("updateCheck", False)),       # opt-in: look on GitHub for a newer version about once a day (a notice only)
         "scope": scope,
     }
 

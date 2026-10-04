@@ -20,4 +20,3 @@
 
 /* ---- controller ---- */
 #padSvg { filter: drop-shadow(0 0 6px var(--accent)); }       /* a soft glow around whichever controller is shown */
-#vecSkin .body { stroke: var(--accent); stroke-width: 4; }     /* vector skins: outline the body */

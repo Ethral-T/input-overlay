@@ -42,6 +42,14 @@ jobs:
             if ($actual -ne $hash) { throw "lib/$name does not match lib/SHA256SUMS.txt" }
           }
 
+      - name: Check the version matches the tag
+        if: github.ref_type == 'tag'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $v = (python -c "from version import VERSION; print(VERSION)").Trim()
+          if ($env:TAG -ne "v$v") { throw "the tag $($env:TAG) does not match version.py ($v): update version.py before tagging" }
+
       - name: Draw the icon
         run: python appicon.py
 

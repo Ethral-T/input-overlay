@@ -99,6 +99,7 @@
   input[type=number] { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; width: 100px; }
   label.check { display: inline-flex; align-items: center; gap: 8px; align-self: flex-end; padding: 8px 4px; cursor: pointer; user-select: none; }
   label.check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+  a.btnlink { background: var(--accent); color: #06121a; border-radius: 8px; padding: 8px 14px; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .agrid { display: grid; grid-template-columns: repeat(3, 26px); gap: 3px; }
   .agrid button { width: 26px; height: 22px; padding: 0; border-radius: 5px; }
   .agrid button.on { background: var(--accent); border-color: var(--accent); }
@@ -113,6 +114,13 @@
 </aside>
 
 <main>
+  <div class="card" id="updBanner" hidden style="border-color:var(--accent)">
+    <div class="row" style="justify-content:space-between">
+      <div><b id="updTitle"></b><div class="muted">A newer version is out. Nothing is installed for you: download it from the release page and unzip it over the old folder.</div></div>
+      <a id="updLink" class="btnlink" target="_blank" rel="noopener noreferrer">Open the release page</a>
+    </div>
+  </div>
+
   <div class="card">
     <div class="row">
       <label class="f grow">Preset name<input type="text" id="name" maxlength="40"></label>
@@ -163,7 +171,7 @@
     <div class="row" style="margin-bottom:10px">
       <span class="muted">Background</span>
       <div class="seg" id="bgSeg"><button data-bg="dark" class="on">Dark</button><button data-bg="check">Checker</button><button data-bg="green">Green</button></div>
-      <span class="muted">The preview reacts to your real input. <b>Drag the right edge of a key to resize it</b> (the rest of the overlay moves to fit); double-click an edge to reset that key.</span>
+      <span class="muted">The preview reacts to your real input. <b>Drag the right edge of a key to resize it</b> (the rest of the overlay moves to fit); double-click an edge to reset that key. With <b>Free layout</b> on (Position &amp; size), drag the keyboard, mouse or a controller to move it.</span>
     </div>
     <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe></div>
     <iframe id="mf" src="/?draft=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
@@ -176,6 +184,10 @@
         <button data-mode="full">Full keyboard</button><button data-mode="custom">Pick keys</button><button data-mode="off">Hidden</button>
       </div>
       <span class="muted">Click a key to hide or show it. Click and drag to paint several.</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="check" style="align-self:center"><input type="checkbox" id="numpad"> Include the numeric keypad</label>
+      <span class="muted">Adds the numpad to the right. Numpad digits only light while NumLock is on.</span>
     </div>
     <div class="row" id="chips" style="margin-top:12px"></div>
     <div id="editor"></div>
@@ -203,6 +215,10 @@
           <span class="ctl"><select id="controller"><option value="auto">Auto-detect</option><option value="steam">Steam Controller</option><option value="xbox">Xbox</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="switch">Nintendo Switch</option><option value="switch2">Switch 2 Pro</option><option value="gamecube">GameCube</option></select></span></label>
         <label class="setting"><span class="name">Show controller</span>
           <span class="ctl"><select id="pad"><option value="auto">When connected</option><option value="on">Always</option><option value="off">Hidden</option></select></span></label>
+        <label class="setting"><span class="name">Controllers to show<small>Show up to four controllers side by side, for co-op. They appear in the order the computer finds them: the first one is player 1.</small></span>
+          <span class="ctl"><select id="pads"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></span></label>
+        <label class="setting"><span class="name">A colour for each player<small>With more than one controller, players 2 to 4 light up in their own colours (red, green, amber). Player 1 keeps your highlight colour.</small></span>
+          <span class="ctl"><input type="checkbox" id="playerColors"></span></label>
         <div class="setting"><div class="name"><div class="nameRow"><label for="gyro">Gyro</label><button type="button" class="scope" data-scope="gyro" aria-pressed="false" title="Click to switch between all presets and just this preset">this preset</button></div><small>For controllers with motion sensors (Steam, PlayStation, Switch). <b>Tilt</b> leans the controller picture as you turn it; <b>Aim</b> adds a box with a dot that follows the turn and leaves a trail. Only shown where the controller is. The Stream Deck gyro buttons switch this to <i>all presets</i>.</small></div>
           <span class="ctl"><select id="gyro"><option value="off">Off</option><option value="tilt">Tilt the picture</option><option value="aim">Aim dot</option><option value="both">Both</option></select></span></div>
         <label class="setting"><span class="name">Gyro sensitivity<small>How far the picture leans and how fast the dot moves for the same turn.</small></span>
@@ -233,8 +249,21 @@
       <div class="stack">
         <div class="setting"><span class="name">Position in source<small>Where the overlay sits inside the OBS Browser Source.</small></span>
           <span class="ctl"><div class="agrid" id="agrid"></div></span></div>
+        <label class="setting"><span class="name">Free layout<small>Arrange the pieces yourself: turn this on, then drag the keyboard, mouse and controllers around in the preview. They snap to each other's edges.</small></span>
+          <span class="ctl"><button type="button" id="layoutReset" title="Put everything back where the row had it">Reset</button><input type="checkbox" id="freeLayout"></span></label>
         <label class="setting"><span class="name">Size<small>Scales the overlay and keeps it sharp. Better than stretching the source in OBS.</small></span>
           <span class="ctl"><input type="range" id="scale" min="0.5" max="2" step="0.05"><span class="val" id="scaleV"></span></span></label>
+      </div>
+    </div>
+
+
+    <div class="card">
+      <h2>About</h2>
+      <div class="stack">
+        <div class="setting"><span class="name">Version<small id="updState">Checking…</small></span>
+          <span class="ctl"><b id="verNow"></b><button type="button" id="updNow">Check now</button></span></div>
+        <label class="setting"><span class="name">Check for new versions automatically<small>Off by default, so nothing leaves your computer. When on, about once a day the program asks GitHub which release is the newest and shows a notice here and in the tray menu if yours is older. Nothing is downloaded or installed, and nothing about you is sent. "Check now" asks once, only when you press it.</small></span>
+          <span class="ctl"><input type="checkbox" id="updateCheck"></span></label>
       </div>
     </div>
 
@@ -253,7 +282,7 @@ const $ = id => document.getElementById(id);
 const ALL_VKS = KB.ALL.map(k => k.vk);
 let presets = [];      // as last saved
 let active = null;     // name of the active preset
-let settings = { swapSide: false, opacity: 1, fill: .8, accent: '#38bdf8', gyro: 'off', scope: { swapSide: true, opacity: false, fill: false, accent: false, gyro: false } };   // shared values + which settings are shared   // hardware settings shared by all presets (saved separately from presets)
+let settings = { swapSide: false, opacity: 1, fill: .8, accent: '#38bdf8', gyro: 'off', updateCheck: false, scope: { swapSide: true, opacity: false, fill: false, accent: false, gyro: false } };   // shared values + which settings are shared   // hardware settings shared by all presets (saved separately from presets)
 let cur = null;        // working copy of the selected preset
 let origName = null;   // name it was loaded/saved under (for renames)
 let saveTimer = null;
@@ -306,9 +335,15 @@ function changed() { sendPreview(); schedSave(); queueMeasure(); }
 function syncControls() {
   $('name').value = cur.name;
   $('mouse').value = cur.mouse ? '1' : '0';
+  $('numpad').checked = !!cur.keyboard.numpad;
+  $('updateCheck').checked = !!settings.updateCheck;
+  if (chipEls['Numpad']) chipEls['Numpad'].hidden = !cur.keyboard.numpad;
   $('controller').value = cur.controller || 'auto';
   $('gyro').value = valueOf('gyro') || 'off';
   $('pad').value = cur.pad;
+  $('pads').value = String(cur.pads || 1);
+  $('freeLayout').checked = !!cur.layout; $('layoutReset').disabled = !cur.layout;
+  $('playerColors').checked = cur.playerColors !== false;
   $('accent').value = valueOf('accent');
   document.querySelectorAll('#agrid button').forEach(b => b.classList.toggle('on', b.dataset.a === cur.align));
   for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'gsens']) {
@@ -327,8 +362,13 @@ function syncControls() {
 $('name').addEventListener('input', e => { cur.name = e.target.value.trim() || cur.name; renderUrl(); schedSave(); });
 $('controller').onchange = e => { cur.controller = e.target.value; changed(); };
 $('gyro').onchange = e => setValue('gyro', e.target.value);
+$('numpad').onchange = e => { cur.keyboard.numpad = e.target.checked; renderEditor(); changed(); };
 $('mouse').onchange = e => { cur.mouse = e.target.value === '1'; changed(); };
 $('pad').onchange = e => { cur.pad = e.target.value; changed(); };
+$('freeLayout').onchange = e => { cur.layout = e.target.checked ? {} : null; syncControls(); changed(); };
+$('layoutReset').onclick = () => { cur.layout = {}; changed(); };
+$('pads').onchange = e => { cur.pads = +e.target.value; changed(); };
+$('playerColors').onchange = e => { cur.playerColors = e.target.checked; changed(); };
 let settingsTimer = null;
 function saveSettings() {                    // settings that apply to every preset are saved separately from presets
   status('Saving…'); clearTimeout(settingsTimer);
@@ -372,7 +412,7 @@ document.querySelectorAll('#bgSeg button').forEach(b => b.onclick = () => {
 const visibleSet = () => cur.keyboard.mode === 'full' ? new Set(ALL_VKS) : new Set(cur.keyboard.keys);
 function setVisible(set) { cur.keyboard.keys = [...set].sort((a, b) => a - b); cur.keyboard.mode = 'custom'; syncControls(); renderEditor(); changed(); }
 function renderEditor() {
-  KB.render($('editor'), { visible: cur.keyboard.mode === 'off' ? new Set() : visibleSet(), editor: true, sizes: cur.keyboard.sizes });
+  KB.render($('editor'), { visible: cur.keyboard.mode === 'off' ? new Set() : visibleSet(), editor: true, sizes: cur.keyboard.sizes, numpad: !!cur.keyboard.numpad });
   if (resetChip) resetChip.hidden = !Object.keys(cur.keyboard.sizes || {}).length;
 }
 // Click a key to toggle; hold the button and drag across keys to paint them to the same state.
@@ -406,7 +446,8 @@ function paintKey(vk) {
 }
 // quick-select chips
 const chips = $('chips');
-const chip = (label, fn) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = label; b.onclick = fn; chips.appendChild(b); return b; };
+const chipEls = {};
+const chip = (label, fn) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = label; b.onclick = fn; chips.appendChild(b); chipEls[label] = b; return b; };
 chip('All', () => setVisible(new Set(ALL_VKS)));
 chip('None', () => setVisible(new Set()));
 chip('Invert', () => { const v = visibleSet(); setVisible(new Set(ALL_VKS.filter(k => !v.has(k)))); });
@@ -419,6 +460,9 @@ for (const [name, vks] of Object.entries(KB.GROUPS)) chip(name, () => {
 resetChip = chip('Reset key sizes', () => { cur.keyboard.sizes = {}; renderEditor(); changed(); });
 resetChip.hidden = true;
 addEventListener('message', e => {
+  if (e.origin === location.origin && e.source === $('pv').contentWindow && e.data && e.data.type === 'layout') {       // a piece was dragged in the preview
+    cur.layout = e.data.layout; schedSave(); queueMeasure(); return;
+  }
   if (e.origin !== location.origin || e.source !== $('pv').contentWindow || !e.data || e.data.type !== 'keysize') return;
   const sizes = cur.keyboard.sizes = cur.keyboard.sizes || {};
   if (e.data.w == null) delete sizes[e.data.vk]; else sizes[e.data.vk] = e.data.w;
@@ -604,6 +648,24 @@ $('themeRefresh').onclick = async () => {        // re-scan the folders, and rel
 };
 $('themeOpen').onclick = async () => { const r = await fetch('/api/themes/open', { method: 'POST' }); status(r.ok ? 'Opened your themes folder' : 'Could not open the folder', !r.ok); };
 loadThemes();
+
+// ---------------------------------------------------------------- update notice
+function showUpdate(u) {
+  $('verNow').textContent = 'v' + u.current;
+  $('updBanner').hidden = !u.available;
+  if (u.available) { $('updTitle').textContent = `Version ${u.latest} is available (you have ${u.current})`; $('updLink').href = u.url; }
+  $('updState').textContent = u.available ? `Version ${u.latest} is available.`
+    : u.error ? `Couldn't check just now (${u.error}).`
+    : u.latest ? `You're up to date (newest is ${u.latest}).`
+    : u.enabled ? 'Not checked yet.' : 'Automatic checking is off. Press Check now to look once.';
+}
+async function loadUpdate() { try { showUpdate(await (await fetch('/api/update')).json()); } catch {} }
+$('updNow').onclick = async () => {
+  $('updState').textContent = 'Checking…';
+  try { showUpdate(await (await fetch('/api/update/check', { method: 'POST' })).json()); } catch { $('updState').textContent = "Couldn't check just now."; }
+};
+$('updateCheck').onchange = e => { settings.updateCheck = e.target.checked; saveSettings(); setTimeout(loadUpdate, 600); };
+loadUpdate();
 
 load(new URLSearchParams(location.search).get('preset'));
 </script>

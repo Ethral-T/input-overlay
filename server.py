@@ -9,7 +9,7 @@ Messages (JSON, server -> overlay):
   {"m": [button, 1|0]}          mouse button: left right middle x1 x2
   {"d": [dx, dy]}               raw mouse movement since last flush
   {"s": [dx, dy]}               scroll wheel ticks
-  {"p": {...}}                  gamepad state (buttons bitmask, triggers, sticks)
+  {"p": [{...}, ...]}           gamepad states, one per connected controller (buttons bitmask, triggers, sticks)
 """
 import argparse
 import asyncio
@@ -26,11 +26,13 @@ from ctypes import wintypes as wt
 from pathlib import Path
 from urllib.parse import urlparse
 
+import aiohttp
 from aiohttp import web, WSMsgType
 from pynput import keyboard, mouse
 
 import config
 import themes
+from version import VERSION
 from gcadapter import GcAdapterBackend
 from switch2 import Switch2ProBackend
 
@@ -83,10 +85,23 @@ def vk_of(key):
 
 
 _down_keys = set()
+_extended = False                      # the low-level hook's "extended key" flag of the key event being handled
+
+
+def kb_filter(msg, data):
+    """Runs just before on_press / on_release, on the same thread: remember whether Windows marks this key as an extended key."""
+    global _extended
+    _extended = bool(data.flags & 1)   # LLKHF_EXTENDED
+    return True
+
+
+def _vk(key):
+    vk = vk_of(key)
+    return 269 if vk == 13 and _extended else vk        # numpad Enter is an extended Return: 269 is the overlay's own code for it
 
 
 def on_press(key):
-    vk = vk_of(key)
+    vk = _vk(key)
     if vk is None or vk in _down_keys:  # ignore auto-repeat
         return
     _down_keys.add(vk)
@@ -94,7 +109,7 @@ def on_press(key):
 
 
 def on_release(key):
-    vk = vk_of(key)
+    vk = _vk(key)
     if vk is None:
         return
     _down_keys.discard(vk)
@@ -201,6 +216,9 @@ def raw_mouse_thread():
 #   * XInput - fallback for Xbox pads and Steam's virtual pad.
 #   A backend that has no pad right now returns None, so the next one gets a turn.
 # --------------------------------------------------------------------------
+MAX_PADS = 4                                       # controllers shown at once (the preset's "pads" setting goes up to this)
+
+
 class _XGAMEPAD(ctypes.Structure):
     _fields_ = [("wButtons", wt.WORD), ("bLeftTrigger", ctypes.c_ubyte), ("bRightTrigger", ctypes.c_ubyte),
                 ("sThumbLX", ctypes.c_short), ("sThumbLY", ctypes.c_short),
@@ -266,76 +284,104 @@ class SdlBackend:
         if not sdl.SDL_Init(self.INIT_GAMEPAD | self.INIT_EVENTS):
             raise OSError("SDL_Init failed: " + sdl.SDL_GetError().decode())
         self.index = index
-        self.pad = None
-        self.pad_name, self.pad_type = "", 0
-        self.gyro = False                         # the open pad reports a gyroscope and it is switched on
+        self.pads = {}                            # SDL instance id -> {"pad": handle, "name", "type", "gyro", "active"}, in the order they were opened
+        self.next_scan = 0.0
 
-    def _open(self):
+    def _open(self, iid):
+        pad = self.sdl.SDL_OpenGamepad(iid)
+        if not pad:
+            return
+        name = (self.sdl.SDL_GetGamepadName(pad) or b"").decode(errors="replace")
+        ptype = self.sdl.SDL_GetGamepadType(pad)
+        print(f"[pad] {self.name}: {name} (SDL type {ptype})")
+        has = bool(self.sdl.SDL_GamepadHasSensor(pad, self.SENSOR_GYRO))
+        gyro = has and bool(self.sdl.SDL_SetGamepadSensorEnabled(pad, self.SENSOR_GYRO, True))
+        print(f"[pad] {self.name}: gyro " + ("on" if gyro else "available but could not be enabled" if has else "not reported by this controller"))
+        self.pads[iid] = {"pad": pad, "name": name, "type": ptype, "gyro": gyro, "active": False}
+
+    def _close(self, iid):
+        self.sdl.SDL_CloseGamepad(self.pads.pop(iid)["pad"])
+
+    def _scan(self):
+        """Open controllers that have appeared and close the ones that have gone. --pad N limits it to the Nth controller."""
         n = ctypes.c_int(0)
         ids = self.sdl.SDL_GetGamepads(ctypes.byref(n))
         if not ids:
-            return
-        try:
-            if n.value:
-                i = self.index if self.index is not None and self.index < n.value else 0
-                self.pad = self.sdl.SDL_OpenGamepad(ids[i])
-                if self.pad:
-                    self.pad_name = (self.sdl.SDL_GetGamepadName(self.pad) or b"").decode(errors="replace")
-                    self.pad_type = self.sdl.SDL_GetGamepadType(self.pad)
-                    print(f"[pad] {self.name}: {self.pad_name} (SDL type {self.pad_type})")
-                    has = bool(self.sdl.SDL_GamepadHasSensor(self.pad, self.SENSOR_GYRO))
-                    self.gyro = has and bool(self.sdl.SDL_SetGamepadSensorEnabled(self.pad, self.SENSOR_GYRO, True))
-                    print(f"[pad] {self.name}: gyro " + ("on" if self.gyro else "available but could not be enabled" if has else "not reported by this controller"))
-        finally:
-            self.sdl.SDL_free(ids)
+            wanted = []
+        else:
+            try:
+                wanted = [ids[i] for i in range(n.value)]
+            finally:
+                self.sdl.SDL_free(ids)
+        if self.index is not None:
+            wanted = wanted[self.index:self.index + 1] or wanted[:1]
+        for iid in [i for i in self.pads if i not in wanted]:
+            self._close(iid)
+        for iid in wanted:
+            if iid not in self.pads:
+                self._open(iid)
 
     def poll(self):
         self.sdl.SDL_UpdateGamepads()
-        if self.pad and not self.sdl.SDL_GamepadConnected(self.pad):
-            self.sdl.SDL_CloseGamepad(self.pad)
-            self.pad = None
-            self.gyro = False
-        if not self.pad:
-            self._open()
-            if not self.pad:
-                return None
+        for iid in [i for i, r in self.pads.items() if not self.sdl.SDL_GamepadConnected(r["pad"])]:
+            self._close(iid)
+        now = time.monotonic()
+        if now >= self.next_scan:
+            self.next_scan = now + (1.0 if self.pads else 0.5)
+            self._scan()
+        recs = list(self.pads.values())
+        states = [self._state(r) for r in recs]
+        # A GameCube adapter in PC mode shows up as four gamepads whether or not anything is plugged in. When there is more than one,
+        # only the ones that have been touched are listed (the first of them if none has been yet).
+        gc = [r for r in recs if r["type"] == 11]
+        if len(gc) > 1:
+            keep = [(r, s) for r, s in zip(recs, states) if r["type"] != 11 or r["active"]]
+            states = [s for _, s in keep] or states[:1]
+        return states
+
+    def _state(self, r):
+        pad = r["pad"]
         gb, ga = self.sdl.SDL_GetGamepadButton, self.sdl.SDL_GetGamepadAxis
         b = 0
         for sdl_btn, mask in self.BUTTONS.items():
-            if gb(self.pad, sdl_btn):
+            if gb(pad, sdl_btn):
                 b |= mask
         # Extra buttons (SDL 15..25: misc1, paddles, touchpad click, misc2-6) as a bitmask, bit = index - 15.
         x = 0
         for idx in range(15, 26):
-            if gb(self.pad, idx):
+            if gb(pad, idx):
                 x |= 1 << (idx - 15)
         # Raw joystick buttons (before SDL's gamepad mapping) as a bitmask, bit = raw index. For debugging.
-        joy = self.sdl.SDL_GetGamepadJoystick(self.pad)
-        r = 0
+        joy = self.sdl.SDL_GetGamepadJoystick(pad)
+        raw = 0
         for idx in range(min(self.sdl.SDL_GetNumJoystickButtons(joy), 32) if joy else 0):
             if self.sdl.SDL_GetJoystickButton(joy, idx):
-                r |= 1 << idx
+                raw |= 1 << idx
         # Touchpads: [down, x 0..1, y 0..1 (down), pressure] for each pad (0 = left, 1 = right).
         touch = []
-        for t in range(min(self.sdl.SDL_GetNumGamepadTouchpads(self.pad), 2)):
+        for t in range(min(self.sdl.SDL_GetNumGamepadTouchpads(pad), 2)):
             down, fx, fy, fp = ctypes.c_bool(), ctypes.c_float(), ctypes.c_float(), ctypes.c_float()
-            if self.sdl.SDL_GetGamepadTouchpadFinger(self.pad, t, 0, ctypes.byref(down), ctypes.byref(fx),
+            if self.sdl.SDL_GetGamepadTouchpadFinger(pad, t, 0, ctypes.byref(down), ctypes.byref(fx),
                                                      ctypes.byref(fy), ctypes.byref(fp)):
                 touch.append([int(down.value), round(fx.value, 3), round(fy.value, 3), round(fp.value, 2)])
         # SDL: stick Y is positive-down, triggers are 0..32767.
-        state = {"c": 1, "b": b, "x": x, "r": r, "t": touch, "ty": self.pad_type, "nm": self.pad_name,
-                 "lt": ga(self.pad, 4) * 255 // 32767, "rt": ga(self.pad, 5) * 255 // 32767,
-                 "lx": ga(self.pad, 0), "ly": -ga(self.pad, 1) - (ga(self.pad, 1) == -32768),
-                 "rx": ga(self.pad, 2), "ry": -ga(self.pad, 3) - (ga(self.pad, 3) == -32768)}
-        if self.gyro:                     # angular speed in rad/s about SDL's x (pitch), y (yaw) and z (roll); rounded so a still pad sends nothing new
+        state = {"c": 1, "b": b, "x": x, "r": raw, "t": touch, "ty": r["type"], "nm": r["name"],
+                 "lt": ga(pad, 4) * 255 // 32767, "rt": ga(pad, 5) * 255 // 32767,
+                 "lx": ga(pad, 0), "ly": -ga(pad, 1) - (ga(pad, 1) == -32768),
+                 "rx": ga(pad, 2), "ry": -ga(pad, 3) - (ga(pad, 3) == -32768)}
+        if r["gyro"]:                     # angular speed in rad/s about SDL's x (pitch), y (yaw) and z (roll); rounded so a still pad sends nothing new
             g = (ctypes.c_float * 3)()
-            if self.sdl.SDL_GetGamepadSensorData(self.pad, self.SENSOR_GYRO, g, 3):
+            if self.sdl.SDL_GetGamepadSensorData(pad, self.SENSOR_GYRO, g, 3):
                 state["g"] = [round(g[0], 2), round(g[1], 2), round(g[2], 2)]
+        if not r["active"] and (b or x or abs(state["lx"]) > 8000 or abs(state["ly"]) > 8000 or abs(state["rx"]) > 8000
+                                or abs(state["ry"]) > 8000 or state["lt"] > 80 or state["rt"] > 80):
+            r["active"] = True            # (only used to tell a plugged-in GameCube pad from an empty adapter port)
         return state
 
 
 class XInputBackend:
     name = "XInput"
+    fallback = True                              # only used when no other backend has found a controller (SDL sees Xbox pads too)
 
     def __init__(self, slot):
         for name in ("xinput1_4", "xinput1_3", "xinput9_1_0"):
@@ -346,26 +392,21 @@ class XInputBackend:
                 continue
         else:
             raise OSError("XInput not available")
-        self.slot, self.active = slot, None
+        self.slot, self.active = slot, ()
 
     def poll(self):
-        found = None
+        states, active = [], []
         for i in ([self.slot] if self.slot is not None else range(4)):
             st = _XSTATE()
             if self.dll.XInputGetState(i, ctypes.byref(st)) == 0:
-                found = (i, st)
-                if self.active is None or i == self.active:
-                    break
-        if not found:
-            self.active = None
-            return None
-        i, st = found
-        if self.active != i:
-            self.active = i
-            print(f"[pad] XInput slot {i}")
-        g = st.Gamepad
-        return {"c": 1, "b": g.wButtons, "lt": g.bLeftTrigger, "rt": g.bRightTrigger,
-                "lx": g.sThumbLX, "ly": g.sThumbLY, "rx": g.sThumbRX, "ry": g.sThumbRY}
+                g = st.Gamepad
+                active.append(i)
+                states.append({"c": 1, "b": g.wButtons, "lt": g.bLeftTrigger, "rt": g.bRightTrigger,
+                               "lx": g.sThumbLX, "ly": g.sThumbLY, "rx": g.sThumbRX, "ry": g.sThumbRY})
+        if tuple(active) != self.active:
+            self.active = tuple(active)
+            print(f"[pad] XInput slots {list(active)}" if active else "[pad] XInput: none")
+        return states
 
 
 def gamepad_thread(index):
@@ -380,25 +421,25 @@ def gamepad_thread(index):
         return
     last = None
     while True:
-        state = None
-        for b in backends:  # first backend that sees a pad wins
+        states = []
+        for b in backends:                          # every backend adds the controllers it sees (the fallback only if there are none yet)
+            if getattr(b, "fallback", False) and states:
+                continue
             try:
-                state = b.poll()
+                res = b.poll()
             except Exception as e:  # noqa: BLE001 - one misbehaving backend must not stop the controller loop
                 print(f"[pad] {b.name} error: {e!r}")
-                state = None
+                res = None
                 time.sleep(1)
-            if state:
-                break
-        if state is None:
-            state = {"c": 0}
-        if state != last:
-            if state["c"] != (last or {}).get("c"):
-                print("[pad] controller connected" if state["c"] else "[pad] controller disconnected")
-            last = state
-            hub.pad_state = state
-            hub.emit({"p": state})
-        time.sleep(1 / 120 if state["c"] else 0.5)
+            states.extend([res] if isinstance(res, dict) else res or [])
+        states = states[:MAX_PADS]
+        if states != last:
+            if len(states) != len(last or []):
+                print(f"[pad] {len(states)} controller(s) connected" if states else "[pad] controller disconnected")
+            last = states
+            hub.pad_state = states
+            hub.emit({"p": states})
+        time.sleep(1 / 120 if states else 0.5)
 
 
 # --------------------------------------------------------------------------
@@ -433,7 +474,7 @@ async def ws_handler(request):
     await ws.prepare(request)
     await ws.send_str(json.dumps({"v": BUILD_ID}))
     hub.clients.add(ws)
-    if hub.pad_state:
+    if hub.pad_state is not None:
         await ws.send_str(json.dumps({"p": hub.pad_state}, separators=(",", ":")))
     try:
         async for m in ws:
@@ -495,6 +536,62 @@ async def api_open_themes(request):
     folder = request.app["themes"].ensure_user_dir()
     os.startfile(str(folder))            # opens the folder in Explorer (Windows)
     return web.json_response({"ok": True, "dir": str(folder)})
+
+
+# --------------------------------------------------------------------------
+# Update notice. About once a day (if "Check for new versions" is on) the program asks GitHub for the latest release of this project and
+# remembers its version number and page. Nothing is downloaded or installed, nothing about you is sent, and the only place it shows is the
+# Settings page and the tray menu. INPUT_OVERLAY_UPDATE_API exists for testing against a local stand-in.
+# --------------------------------------------------------------------------
+UPDATE_API = os.environ.get("INPUT_OVERLAY_UPDATE_API") or "https://api.github.com/repos/Ethral-T/input-overlay/releases/latest"
+RELEASES_URL = "https://github.com/Ethral-T/input-overlay/releases/"
+UPDATE_EVERY = 24 * 3600
+update = {"checked": 0.0, "latest": None, "url": None, "error": None}
+
+
+def parse_version(text):
+    m = re.fullmatch(r"v?(\d{1,4})\.(\d{1,4})(?:\.(\d{1,4}))?", text or "")
+    return tuple(int(g or 0) for g in m.groups()) if m else None
+
+
+def update_snapshot():
+    latest = parse_version(update["latest"])
+    return {"enabled": config.shared().settings["updateCheck"], "current": VERSION, "latest": update["latest"], "url": update["url"],
+            "available": bool(latest and latest > parse_version(VERSION)), "checked": update["checked"], "error": update["error"]}
+
+
+async def check_update():
+    """Ask GitHub for the latest release. Only a version number and a link on this project's own releases page are accepted from the reply."""
+    try:
+        headers = {"User-Agent": f"InputOverlay/{VERSION}", "Accept": "application/vnd.github+json"}
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10), headers=headers) as s:
+            async with s.get(UPDATE_API) as r:
+                if r.status != 200:
+                    raise ValueError(f"GitHub answered {r.status}")
+                data = await r.json(content_type=None)
+        tag, url = data.get("tag_name"), data.get("html_url")
+        if parse_version(tag) is None or not isinstance(url, str) or not url.startswith(RELEASES_URL):
+            raise ValueError("unexpected reply")
+        update.update(latest=tag.lstrip("v"), url=url, error=None, checked=time.time())
+    except Exception as e:  # noqa: BLE001 - no network, GitHub down, odd reply: just try again later
+        update.update(error=str(e) or type(e).__name__, checked=time.time() - UPDATE_EVERY + 3600)         # try again in an hour
+    return update_snapshot()
+
+
+async def update_checker():
+    await asyncio.sleep(20)                                   # let the program settle first
+    while True:
+        if config.shared().settings["updateCheck"] and time.time() - update["checked"] >= UPDATE_EVERY:
+            await check_update()
+        await asyncio.sleep(600)
+
+
+async def api_update(request):
+    return web.json_response(update_snapshot())
+
+
+async def api_update_check(request):
+    return web.json_response(await check_update())
 
 
 async def api_list(request):
@@ -623,7 +720,7 @@ async def main(args):
     hub.loop = asyncio.get_running_loop()
     hub.queue = asyncio.Queue()
 
-    keyboard.Listener(on_press=on_press, on_release=on_release).start()
+    keyboard.Listener(on_press=on_press, on_release=on_release, win32_event_filter=kb_filter).start()
     mouse.Listener(on_click=on_click, on_scroll=on_scroll).start()
     threading.Thread(target=raw_mouse_thread, daemon=True).start()
     threading.Thread(target=gamepad_thread, args=(args.pad,), daemon=True).start()
@@ -637,6 +734,7 @@ async def main(args):
                     web.get("/index.html", static_page("index.html")), web.get("/settings.html", static_page("settings.html")),
                     web.get("/ws", ws_handler), web.get("/api/presets", api_list), web.put("/api/settings", api_put_settings),
                     web.get("/api/themes", api_themes), web.post("/api/themes/open", api_open_themes),
+                    web.get("/api/update", api_update), web.post("/api/update/check", api_update_check),
                     web.get("/themes/{id}/{path:.+}", theme_file),
                     web.put("/api/presets/{name}", api_put), web.delete("/api/presets/{name}", api_delete),
                     web.route("*", "/api/switch", api_switch), web.route("*", "/api/switch/{name}", api_switch),
@@ -652,7 +750,7 @@ async def main(args):
     if not app["loopback_only"]:
         print("WARNING: listening on a non-loopback address - anyone who can reach it can read your keystrokes.")
     print("Press Ctrl+C to stop.")
-    await asyncio.gather(broadcaster(), motion_flusher())
+    await asyncio.gather(broadcaster(), motion_flusher(), update_checker())
 
 
 if __name__ == "__main__":
