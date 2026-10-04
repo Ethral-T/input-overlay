@@ -6,7 +6,11 @@ import config
 def test_clean_non_dict_gives_defaults():
     for junk in (None, 5, "x", [], [1, 2]):
         p = config.clean(junk)
-        assert p["keyboard"] == {"mode": "full", "keys": [], "sizes": {}}
+        # "numpad" (added by the numpad/multi-pad PR) may or may not exist yet, so check the keys one by one
+        kb = p["keyboard"]
+        assert (kb["mode"], kb["keys"], kb["sizes"]) == ("full", [], {})
+        assert kb.get("numpad", False) is False
+        assert set(kb) <= {"mode", "keys", "sizes", "numpad"}
         assert p["controller"] == "auto" and p["pad"] == "auto" and p["align"] == "mc"
         assert p["accent"] == "#38bdf8" and p["theme"] == "default"
 
