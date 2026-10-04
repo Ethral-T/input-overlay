@@ -194,6 +194,28 @@ The server listens on `127.0.0.1` only, and refuses requests from other websites
 page could otherwise connect to the local socket and read your keystrokes. Don't run it with `--host 0.0.0.0` unless you mean to.
 The keyboard hook is global: the overlay shows keys typed in any window, including passwords. Hide the source on sensitive screens.
 
+## Antivirus and "unrecognised app" warnings
+
+Windows SmartScreen, browsers and some antivirus scanners (including the aggregate results on VirusTotal) may flag the download or
+warn that it is "unrecognised". This is a **false positive**, and it is common for this kind of tool. The reasons:
+
+- **A global keyboard hook.** To show your keys in any window, the program uses a system-wide keyboard and mouse hook (via `pynput`
+  and Windows Raw Input). That is exactly how keyloggers work, so heuristic scanners treat the behaviour as suspicious. Input Overlay
+  only sends what it sees to `127.0.0.1` (your own PC) and never to the internet, and the source is open so you can check; see [Security](#security).
+- **Not code-signed.** The executable has no paid code-signing certificate, so Windows has no publisher to trust and SmartScreen shows
+  "Windows protected your PC" until enough people have downloaded the file to build up a reputation. Each new build starts from zero.
+- **Built with PyInstaller.** The `.exe` is a Python program packed with PyInstaller, which is also how a lot of real malware is
+  packaged. Scanners often flag the packer's bootloader itself, so even a hello-world PyInstaller app can trigger detections.
+- **Raw USB access and bundled DLLs.** The GameCube adapter and Switch 2 Pro support talk to the USB device directly through
+  `libusb-1.0.dll`, and gamepads are read through `SDL3.dll`. Low-level device access plus unsigned DLLs is another pattern scanners score as risky.
+- **A local web server and a tray icon.** The program runs a small web server on your machine and sits in the system tray, which are
+  behaviours that malware also uses.
+- **Few downloads.** Scanners lean on reputation, and a new, small project has none yet.
+
+**What you can do:** build it yourself from this repository (see [Building](#building)), read the code, or compare the file's
+SHA-256 against the one published with each release. If your antivirus quarantines it, you can add an exclusion for the install
+folder. Only do that for a copy you downloaded from this repository's Releases page or built yourself.
+
 ## Notes
 
 - Games running as administrator may block input hooks from a non-elevated process; run the program elevated if needed.
