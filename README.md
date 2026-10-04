@@ -1,4 +1,5 @@
 # Input Overlay
+n![Input Overlay](docs/input-overlay-promo.png)
 
 Stream overlay showing your keyboard, mouse (buttons, scroll, movement) and Steam Controller
 (sticks, buttons, triggers, both trackpads with pressure, back grips).
