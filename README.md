@@ -5,13 +5,14 @@
 A stream overlay that shows your **keyboard**, **mouse** and **game controller** live, for OBS or any other streaming software.
 Highlight colours, themes and controller artwork are all adjustable, and you can switch between layouts with a Stream Deck.
 
-- **Keyboard:** show the whole thing or only the keys you use (WASD, a custom set), with resizable keys.
+- **Keyboard:** show the whole thing, with or without the numpad, or only the keys you use (WASD, a custom set), with resizable keys.
 - **Mouse:** buttons, scroll wheel, side buttons and a movement dot. It works in games that lock the cursor.
-- **Controllers:** Steam Controller, Xbox, PlayStation 4 and 5, Switch Pro, Switch 2 Pro and GameCube, with analogue triggers, sticks and trackpads.
+- **Controllers:** Steam Controller, Xbox, PlayStation 4 and 5, Switch Pro, Switch 2 Pro and GameCube, with analogue triggers, sticks and trackpads. Show up to four at once for co-op, each in its own colour.
+- **Free layout:** drag the keyboard, mouse and controllers wherever you want them instead of in a row.
 - **Gyro:** the controller picture can tilt, or an aim dot can follow your motion.
 - **Presets:** build several layouts (say "Full", "WASD + Mouse", "Controller only") and switch between them live.
 - **Themes:** Classic, Retro Pixel and Neon, or make your own.
-- **Windows only.** Everything runs on your PC; nothing is sent to the internet.
+- **Windows only.** Everything runs on your PC. Nothing goes to the internet unless you turn on the optional update check (see [Updates](#updates)), and even then nothing you type or do is sent anywhere.
 
 ## Download and install
 
@@ -24,7 +25,7 @@ Windows or your antivirus may warn about the download. That is a false positive;
 
 1. In **Settings** (click the tray icon, or open `http://127.0.0.1:8765/settings`), pick a preset or make your own.
    - Click keys to hide or show them, or drag across several. The quick-select buttons (All, None, Letters, Digits, WASD and so on) do it in bulk.
-   - Turn the mouse and controller on or off, then choose the highlight colour, size and theme.
+   - Turn the numpad, mouse and controller on or off, then choose the highlight colour, size and theme.
 2. In OBS, add a **Browser Source** with the URL `http://127.0.0.1:8765/`.
 3. Type the width and height that Settings shows under **OBS Browser Source size** into the source's Width and Height boxes.
 
@@ -40,6 +41,8 @@ Presets are stored in `%APPDATA%\InputOverlay\config.json`, with a log, `log.txt
 - **Position in source** (the 3x3 picker, set per preset; centre by default) pins the overlay to a corner, edge or the middle of the
   source, so switching presets doesn't make it jump.
 - Use the **Size** slider to scale the overlay instead of stretching the source in OBS, which makes it blurry.
+- **Free layout** (Position & size) lets you drag the keyboard, mouse and each controller to wherever you like in the preview. Pieces snap to each
+  other's edges and middles. Press **Reset** to put them back in a row.
 - To resize a key, drag the right edge of it in the Settings preview. It snaps to quarter-key steps, and the keys after it shift to
   follow. Double-click an edge to reset that key, or press **Reset key sizes** to clear them all.
 
@@ -65,6 +68,13 @@ All URLs start with `http://127.0.0.1:8765`. Requests that a browser marks as cr
 **Controller style** (Settings, Controller) picks the artwork: Steam Controller, Xbox, PlayStation 4, PlayStation 5, Nintendo Switch,
 Switch 2 Pro or GameCube. **Auto-detect** (the default) picks one from the connected controller. Unknown or generic pads get the Xbox art.
 Controllers are read through SDL3, with XInput as a fallback.
+
+### More than one controller
+Set **Controllers to show** (Settings, Controller) to 2, 3 or 4 to show several controllers side by side. They appear in the order the computer finds
+them, so the first one plugged in is player 1, and each gets the artwork that matches it (an Xbox pad next to a PlayStation pad is fine). With **A colour
+for each player** on, players 2 to 4 light up red, green and amber and player 1 keeps your highlight colour. A GameCube adapter in PC mode reports all four
+ports whether or not anything is plugged in, so when there is more than one, a controller there appears the first time you touch it. Gyro tilt and aim boxes work
+for each controller on its own.
 
 ### Steam Controller
 Trackpads have no click switch, so a "click" is pressure past a threshold. Adjust it with **Trackpad click pressure** in Settings, Controller.
@@ -120,6 +130,8 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 |---|---|
 | `preset` | Preset name |
 | `kb` | `full`, `compact`, `off` |
+| `numpad` | `1` or `0`: include the numeric keypad |
+| `pads` | `1` to `4`: how many controllers to show |
 | `mouse` | `1`, `0` |
 | `pad` | `auto` (only while connected), `1`/`on`, `0`/`off` |
 | `accent` | Highlight colour, for example `f43f5e` or `orange` |
@@ -138,7 +150,15 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 - **A mouse side button is the wrong one:** tick **Mouse Button Invert** in Settings.
 - **Keys don't show in a game:** games running as administrator can block input hooks from a normal program. Run Input Overlay as administrator too.
 - **The controller isn't detected:** add `?debug=1` to the URL to see what the program detects and which inputs it receives.
-- **The numpad** isn't displayed yet.
+- **Numpad digits don't light:** they only report while NumLock is on. Numpad Enter lights its own key, separate from the main Enter.
+
+## Updates
+
+**The update check is off by default, so out of the box nothing leaves your computer.** If you want it, tick **Check for new versions automatically**
+in Settings, About. About once a day the program then asks GitHub which release of this project is the newest. If yours is older, Settings shows a banner with
+a link to the release page and the tray menu gets an "Update available" item. Nothing is downloaded or installed for you: download the new zip and unzip it over
+the old folder. The request carries no information about you or your computer beyond the program's name and version, which are in the request itself.
+**Check now** (Settings, About) asks once, only when you press it, whether or not the automatic check is on.
 
 ## Security and privacy
 
@@ -160,7 +180,7 @@ that it is "unrecognised". This is a **false positive**, and it is common for to
   often flag the packer itself, so even a "hello world" PyInstaller app can trigger detections.
 - **Direct USB access and bundled DLLs.** GameCube adapter and Switch 2 Pro support talk to the device through `libusb`, and gamepads go
   through `SDL3`. Low-level device access plus unsigned DLLs is another pattern scanners score as risky.
-- **A local web server and a tray icon,** which malware also uses.
+- **A local web server and a tray icon,** which malware also uses. It can also look on GitHub once a day for a newer version, but only if you turn that on.
 - **Few downloads.** Scanners lean on reputation, and a new small project has none yet.
 
 **What you can do:** build it from source (below), read the code, or compare the zip's SHA-256 with the `.sha256.txt` file on the
@@ -180,6 +200,8 @@ The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x
 [libsdl-org/SDL](https://github.com/libsdl-org/SDL)) and `libusb-1.0.dll` (libusb 1.0.30, `VS2022\MS64\dll` from the Windows .7z at
 [libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository, and the build checks them against `lib/SHA256SUMS.txt`. Python packages are pinned with hashes in
 `requirements.lock` and `requirements-dev.lock` (regenerate them with `pip-compile --generate-hashes` after changing `requirements.txt`). Distribute the whole `dist\InputOverlay` folder.
+
+Release tags are `v` plus the number in `version.py`; the build refuses a tag that doesn't match, so change `version.py` before tagging.
 
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).

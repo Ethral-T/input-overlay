@@ -18,6 +18,8 @@
   #stage { position: fixed; inset: 0; display: flex; }          /* alignment inside the Browser Source */
   #root { display: flex; align-items: flex-end; gap: 28px; padding: 8px; width: max-content; flex: none; }
   .hidden { display: none !important; }
+  #root.free { display: block; position: relative; padding: 0; }                /* Free layout: every piece is placed by the preset */
+  #root.free > [data-item] { position: absolute; }
 
   /* ---- keyboard ---- */
   .key {
@@ -41,27 +43,17 @@
          color: #fff; background: rgba(0,0,0,.7); border-radius: 6px; white-space: pre; }
 
   /* ---- controller ---- */
-  #pad { width: 400px; }
-  #padSvg { width: 100%; height: auto; display: block; overflow: visible; }
+  .padItem { flex: none; width: 400px; will-change: transform; }
+  .padSvg { width: 100%; height: auto; display: block; overflow: visible; }
 
-  #layerSkin .lbl { font: 700 var(--size, 30px) "Segoe UI", sans-serif; text-anchor: middle; dominant-baseline: central; fill: #14171d; pointer-events: none; }
+  .layerSkin .lbl { font: 700 var(--size, 30px) "Segoe UI", sans-serif; text-anchor: middle; dominant-baseline: central; fill: #14171d; pointer-events: none; }
 
   /* ---- gyro aim box (the "aim" gyro display) ---- */
-  #gyroBox { flex: none; width: 150px; height: 120px; box-sizing: border-box; background: var(--key-bg); border: 1px solid var(--key-border); border-radius: 7px; }
-  #gyroCv { width: 148px; height: 118px; display: block; pointer-events: none; }
-  #pad { will-change: transform; }
-  #icon > .bodyRing { display: none; }                  /* the outline copy of the body: off unless a theme turns it on */
+  .gyroItem { flex: none; width: 150px; height: 120px; box-sizing: border-box; background: var(--key-bg); border: 1px solid var(--key-border); border-radius: 7px; }
+  .gyroCv { width: 148px; height: 118px; display: block; pointer-events: none; }
+  .icon > .bodyRing { display: none; }                  /* the outline copy of the body: off unless a theme turns it on */
 
   #kbHandle { position: fixed; display: none; width: 6px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; z-index: 50; }
-
-  /* vector controller skins (img/pad-*.svg): parts are tinted via --part, set from script */
-  #vecSkin .body { fill: rgba(20, 24, 33, var(--fill)); stroke: rgba(255,255,255,.16); stroke-width: 3; }
-  #vecSkin .well { fill: rgba(0,0,0,.35); stroke: rgba(255,255,255,.10); stroke-width: 2; }
-  #vecSkin .fill { fill: var(--part, #f2f5fa); }
-  #vecSkin .ring { fill: none; stroke: rgba(20,23,29,.35); stroke-width: 4; }
-  #vecSkin .stroke { fill: none; stroke: #14171d; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
-  #vecSkin .lbl { font: 800 30px "Segoe UI", sans-serif; text-anchor: middle; dominant-baseline: central; fill: #14171d; pointer-events: none; }
-  #vecSkin .finger { fill: #fff; stroke: var(--accent); stroke-width: 5; }
 </style>
 </head>
 <body>
@@ -69,7 +61,7 @@
      Anchored at the origin of the element's own coordinate space, which the sampling grid needs. It samples a square of N/2 units in the
      middle of each block and grows it by N/4 on every side. The sample must stay well over one screen pixel at any zoom or the browser
      rounds it to nothing and the whole picture disappears, which is why it is N/2 and not a couple of units. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="globalDefs">
   <filter id="pixelate-4" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="1" y="1" width="2" height="2"/><feComposite width="4" height="4"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="1"/></filter>
   <filter id="pixelate-6" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="1.5" y="1.5" width="3" height="3"/><feComposite width="6" height="6"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="1.5"/></filter>
   <filter id="pixelate-8" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="2" y="2" width="4" height="4"/><feComposite width="8" height="8"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="2"/></filter>
@@ -79,8 +71,8 @@
   <filter id="pixelate-16" filterUnits="userSpaceOnUse" x="0" y="0" width="2000" height="2000"><feFlood x="4" y="4" width="8" height="8"/><feComposite width="16" height="16"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="4"/></filter>
 </defs></svg>
 <div id="stage"><div id="root">
-  <div id="kb" class="kb-main"></div>
-  <div id="mouse" class="mouse-wrap">
+  <div id="kb" class="kb-main" data-item="kb"></div>
+  <div id="mouse" class="mouse-wrap" data-item="mouse">
     <svg id="mouseSvg" width="143" height="221" viewBox="0 0 110 170">
       <path class="shape" d="M55 6 C25 6 12 28 12 60 L12 110 C12 146 30 164 55 164 C80 164 98 146 98 110 L98 60 C98 28 85 6 55 6Z"/>
       <path class="hit" data-m="left"  d="M55 6 C28 6 14 26 13 58 L13 70 L52 70 L52 6Z"/>
@@ -94,45 +86,39 @@
     </svg>
     <canvas id="motion" width="286" height="442"></canvas>
   </div>
-  <div id="pad" class="hidden">
-    <svg id="padSvg" viewBox="20 60 984 870">
-      <defs>
-        <!-- invert the (dark-on-light) icon artwork. The filter area is a little larger than the artwork so effects a theme adds around its edge
-             (like the body outline) are not cut off at the artwork's box. -->
-        <filter id="inv" color-interpolation-filters="sRGB" x="-10%" y="-10%" width="120%" height="120%">
-          <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
-        </filter>
-        <!-- recolour the artwork's body (its first image) with the flat colour a theme sets in --body-fill. The whole artwork is inverted
-             afterwards, so the colour is inverted here first and comes out as asked. Themes opt in with: #icon > .bodyMain { filter: url(#bodyfill) } -->
-        <filter id="bodyfill" color-interpolation-filters="sRGB">
-          <feFlood style="flood-color: var(--body-fill, #fff)"/><feComposite in2="SourceAlpha" operator="in"/>
-          <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
-        </filter>
-        <!-- an outline around the artwork's body, in the colour a theme sets in --ring-color (inverted first, like --body-fill). It is drawn from a
-             hidden copy of the body: a theme shows it with  #icon > .bodyRing { display: inline; filter: url(#bodyring) } -->
-        <filter id="bodyring" color-interpolation-filters="sRGB">
-          <feMorphology in="SourceAlpha" operator="dilate" radius="10" result="grown"/>
-          <feComposite in="grown" in2="SourceAlpha" operator="out" result="ring"/>
-          <feFlood style="flood-color: var(--ring-color, #000)"/><feComposite in2="ring" operator="in"/>
-          <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
-        </filter>
-        <!-- recolour a part's silhouette with the accent colour -->
-        <filter id="tint" color-interpolation-filters="sRGB">
-          <feFlood id="tintFlood" flood-color="#38bdf8"/><feComposite in2="SourceAlpha" operator="in"/>
-        </filter>
-      </defs>
-      <g id="layerSkin" class="hidden">
-        <g id="icon" filter="url(#inv)"></g>   <!-- the artwork, inverted -->
-        <g id="fx"></g>                        <!-- recoloured copies of the parts that are active -->
-        <g id="labels"></g>                    <!-- text labels drawn by the overlay (on top, so they stay readable when a part lights up) -->
-      </g>
-      <g id="vecSkin" class="hidden"></g>
-    </svg>
-  </div>
-  <div id="gyroBox" class="hidden"><canvas id="gyroCv" width="296" height="236"></canvas></div>
 </div>
 
 </div>
+<!-- one of these is made for every controller shown (the aim box is its own item so Free layout can move it on its own) -->
+<template id="padTpl">
+  <div class="padItem hidden"><svg class="padSvg" id="padSvg" viewBox="20 60 984 870"><defs>
+      <!-- invert the (dark-on-light) icon artwork. The filter area is a little larger than the artwork so effects a theme adds around its edge
+        (like the body outline) are not cut off at the artwork's box. -->
+      <filter id="inv" color-interpolation-filters="sRGB" x="-10%" y="-10%" width="120%" height="120%">
+        <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+      </filter>
+      <!-- recolour the artwork's body (its first image) with the flat colour a theme sets in --body-fill. The whole artwork is inverted
+        afterwards, so the colour is inverted here first and comes out as asked. Themes opt in with: #icon > .bodyMain { filter: url(#bodyfill) } -->
+      <filter id="bodyfill" color-interpolation-filters="sRGB">
+        <feFlood style="flood-color: var(--body-fill, #fff)"/><feComposite in2="SourceAlpha" operator="in"/>
+        <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+      </filter>
+      <!-- an outline around the artwork's body, in the colour a theme sets in --ring-color (inverted first, like --body-fill). It is drawn from a
+        hidden copy of the body: a theme shows it with  #icon > .bodyRing { display: inline; filter: url(#bodyring) } -->
+      <filter id="bodyring" color-interpolation-filters="sRGB">
+        <feMorphology in="SourceAlpha" operator="dilate" radius="10" result="grown"/>
+        <feComposite in="grown" in2="SourceAlpha" operator="out" result="ring"/>
+        <feFlood style="flood-color: var(--ring-color, #000)"/><feComposite in2="ring" operator="in"/>
+        <feColorMatrix type="matrix" values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>
+      </filter>
+      </defs>
+    <g class="layerSkin hidden" id="layerSkin">
+      <g class="icon" id="icon" filter="url(#inv)"></g>   <!-- the artwork, inverted -->
+      <g class="fx" id="fx"></g>                          <!-- recoloured copies of the parts that are active -->
+      <g class="labels" id="labels"></g>                  <!-- text labels drawn by the overlay (on top, so they stay readable when a part lights up) -->
+    </g></svg></div>
+  <div class="gyroItem hidden"><canvas class="gyroCv" width="296" height="236"></canvas></div>
+</template>
 <script src="keyboard.js"></script>
 <script>
 const q = new URLSearchParams(location.search);
@@ -145,16 +131,19 @@ if (dbg) { const pre = document.createElement('pre'); pre.id = 'dbg'; document.b
 // A preset (see config.py) decides what is shown. URL parameters override it for quick tweaks:
 //   kb=full|compact|off  mouse=0|1  pad=0|1|auto  accent=<hex or colour name>  scale  sens  tpt  tprot  gyro=off|tilt|aim|both  gsens
 const DEFAULTS = { keyboard: { mode: 'full', keys: [], sizes: {} }, mouse: true, pad: 'auto', align: 'mc', accent: '#38bdf8',
-                   scale: 1, opacity: 1, fill: .8, swapSide: false, controller: 'auto', theme: 'default', sens: 1, tpt: .5, tprot: 9, gyro: 'off', gsens: 1 };
+                   scale: 1, opacity: 1, fill: .8, swapSide: false, controller: 'auto', theme: 'default', sens: 1, tpt: .5, tprot: 9, gyro: 'off', gsens: 1,
+                   pads: 1, playerColors: true, layout: null };
 const normalize = base => ({ ...DEFAULTS, ...base, keyboard: { ...DEFAULTS.keyboard, ...(base && base.keyboard) } });
 function withOverrides(c) {
   const kb = q.get('kb');
-  if (kb === 'off' || kb === 'full') c.keyboard = { mode: kb, keys: [] };
-  else if (kb === 'compact') c.keyboard = { mode: 'custom', keys: KB.GROUPS['WASD + common'] };
+  if (kb === 'off' || kb === 'full') c.keyboard = { ...c.keyboard, mode: kb, keys: [] };
+  else if (kb === 'compact') c.keyboard = { ...c.keyboard, mode: 'custom', keys: KB.GROUPS['WASD + common'] };
+  if (q.has('numpad')) c.keyboard = { ...c.keyboard, numpad: q.get('numpad') !== '0' };
   if (q.has('mouse')) c.mouse = q.get('mouse') !== '0';
   const pad = q.get('pad');
   if (pad === '0' || pad === 'off') c.pad = 'off'; else if (pad === '1' || pad === 'on') c.pad = 'on'; else if (pad === 'auto') c.pad = 'auto';
   if (q.get('theme')) c.theme = q.get('theme');
+  if (q.has('pads')) c.pads = parseInt(q.get('pads')) || 1;
   if (q.get('controller')) c.controller = q.get('controller') === 'playstation' ? 'ps5' : q.get('controller');          // auto | steam | xbox | playstation | switch | gamecube
   if (/^[tmb][lcr]$/.test(q.get('align') || '')) c.align = q.get('align');
   const acc = q.get('accent');
@@ -169,7 +158,7 @@ let settings = { swapSide: false, opacity: 1, fill: .8, theme: 'default', accent
 const held = {};                          // mouse buttons currently down, by event name
 let keyEls = new Map();
 const down = new Set();                       // keys currently held, so a re-render keeps them lit
-let padConnected = false, padLoading = false, buildId = null;
+let buildId = null;
 
 // Settings marked "all presets" use the shared value instead of the preset's own. A ?opacity= / ?fill= in the URL still wins.
 const isShared = k => !!(settings.scope && settings.scope[k]);
@@ -182,12 +171,10 @@ function applyConfig(c) {
   c = cfg = effective(c);
   applyTheme(c.theme || 'default');
   document.documentElement.style.setProperty('--accent', c.accent);
-  document.getElementById('tintFlood').setAttribute('flood-color', c.accent);
   root.style.zoom = c.scale;
   root.style.opacity = c.opacity;
   document.documentElement.style.setProperty('--fill', c.fill);
   for (const n of Object.keys(held)) setMouseButton(n, held[n]);     // re-light held buttons if the invert setting changed
-  applyBodyFill();
   const st = document.getElementById('stage').style;
   st.alignItems = { t: 'flex-start', m: 'center', b: 'flex-end' }[c.align[0]];
   st.justifyContent = { l: 'flex-start', c: 'center', r: 'flex-end' }[c.align[1]];
@@ -195,18 +182,14 @@ function applyConfig(c) {
   show('kb', kbOn);
   if (kbOn) renderKeyboard();
   show('mouse', c.mouse);
-  if (c.pad !== 'off') syncSkin();
-  pads.forEach(t => t.g.setAttribute('transform', padTransform(t)));
-  updatePadVisibility();
-  updateGyro();
+  syncViews();
+  applyLayout();
 }
-const padVisible = () => cfg.pad === 'on' || (cfg.pad === 'auto' && (padConnected || draft));
-function updatePadVisibility() { show('pad', padVisible()); }
 
 // ---------------------------------------------------------------- keyboard
 function renderKeyboard() {
   const k = cfg.keyboard;
-  keyEls = KB.render(document.getElementById('kb'), { visible: k.mode === 'custom' ? new Set(k.keys) : null, sizes: k.sizes });
+  keyEls = KB.render(document.getElementById('kb'), { visible: k.mode === 'custom' ? new Set(k.keys) : null, sizes: k.sizes, numpad: !!k.numpad });
   for (const vk of [...down]) setKey(vk, 1);
 }
 function setKey(vk, isDown) {
@@ -262,76 +245,17 @@ function drawMotion() {
 }
 drawMotion();
 
-// ---------------------------------------------------------------- gyro
-// The server sends the controller's angular speed in rad/s (p.g = [pitch, yaw, roll], SDL's axes) while the pad reports a gyroscope.
-// A gyroscope gives speed, not position, so both displays integrate it and let it relax back to the middle:
-//   tilt - the controller picture leans the way the controller is turned (CSS 3D on #pad);
-//   aim  - a dot in a box moves with the turn and drifts back, leaving a fading trail like the mouse dot.
-const gyro = { have: false, rate: [0, 0, 0], prev: [0, 0, 0], bias: [0, 0, 0], still: 0, pitch: 0, yaw: 0, roll: 0, ax: 0, ay: 0, last: 0, trail: [], tilted: false };
-const GY = { pitch: 1, yaw: 1, roll: 1, aimX: -1, aimY: -1 };    // +1 / -1: flip one if that direction comes out the wrong way round
-const GYRO_NOISE = 0.04;                                           // rad/s below this counts as still
-const wantTilt = () => cfg.gyro === 'tilt' || cfg.gyro === 'both';
-const wantAim = () => cfg.gyro === 'aim' || cfg.gyro === 'both';
-const gyroBox = document.getElementById('gyroBox'), gcx = document.getElementById('gyroCv').getContext('2d');
-gcx.scale(2, 2);                                                   // the canvas is drawn at 2x so it stays sharp
-function updateGyro() {
-  // the aim box is part of the controller display: it is only shown where the controller is (a preset that hides the controller shows no gyro)
-  gyroBox.classList.toggle('hidden', !(wantAim() && padVisible() && ((gyro.have && padConnected) || draft)));
-  if (!wantTilt() || !gyro.have) {                                 // not tilting: put the picture back
-    if (gyro.tilted) { document.getElementById('pad').style.transform = ''; gyro.tilted = false; }
-    gyro.pitch = gyro.yaw = gyro.roll = 0;
-  }
-}
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-function drawGyro(now) {
-  const dt = Math.min(0.05, Math.max(0, (now - gyro.last) / 1000) || 0.016); gyro.last = now;
-  // Every gyroscope reports a small constant offset at rest (this one reported 0.27 rad/s), which would read as a steady turn and make the picture
-  // lean and the dot drift for ever. A hand always trembles, so when the readings have not changed for a moment the controller is at rest (or
-  // not sending): the current reading is taken as zero. While it is really turning the reading keeps changing, so the offset is left alone.
-  const raw = gyro.rate;
-  const moved = Math.max(Math.abs(raw[0] - gyro.prev[0]), Math.abs(raw[1] - gyro.prev[1]), Math.abs(raw[2] - gyro.prev[2]));
-  gyro.prev = raw.slice();
-  gyro.still = moved < 0.03 ? gyro.still + dt : 0;
-  if (gyro.still > 0.7) for (let i = 0; i < 3; i++) gyro.bias[i] += (raw[i] - gyro.bias[i]) * Math.min(1, dt * 4);
-  const [rp, ry, rr] = raw.map((v, i) => v - gyro.bias[i]).map(v => Math.abs(v) < GYRO_NOISE ? 0 : v);
-  const k = (cfg.gsens || 1), deg = 180 / Math.PI;
-  if (wantTilt() && gyro.have) {
-    const keep = Math.exp(-dt / 1.2);                              // leaks back to level in about a second
-    gyro.pitch = clamp((gyro.pitch + GY.pitch * rp * deg * dt * k) * keep, -50, 50);
-    gyro.yaw   = clamp((gyro.yaw   + GY.yaw   * ry * deg * dt * k) * keep, -50, 50);
-    gyro.roll  = clamp((gyro.roll  + GY.roll  * rr * deg * dt * k) * keep, -60, 60);
-    // right-handed rotation, positive counter-clockwise seen from the positive axis; CSS rotateX/Y/Z turn the other way, hence the minus signs
-    document.getElementById('pad').style.transform = `perspective(900px) rotateX(${-gyro.pitch.toFixed(1)}deg) rotateY(${-gyro.yaw.toFixed(1)}deg) rotateZ(${-gyro.roll.toFixed(1)}deg)`;
-    gyro.tilted = true;
-  }
-  if (!gyroBox.classList.contains('hidden')) {
-    const keep = Math.exp(-dt / 0.9);
-    gyro.ax = clamp((gyro.ax + GY.aimX * ry * dt * 0.9 * k) * keep, -1, 1);
-    gyro.ay = clamp((gyro.ay + GY.aimY * rp * dt * 0.9 * k) * keep, -1, 1);
-    gyro.trail.push([gyro.ax, gyro.ay]); if (gyro.trail.length > 30) gyro.trail.shift();
-    const W = 148, H = 118, cx0 = W / 2, cy0 = H / 2, ex = W / 2 - 14, ey = H / 2 - 14;
-    gcx.clearRect(0, 0, W, H);
-    gcx.strokeStyle = 'rgba(255,255,255,.14)'; gcx.lineWidth = 1;
-    gcx.beginPath(); gcx.moveTo(cx0, 8); gcx.lineTo(cx0, H - 8); gcx.moveTo(8, cy0); gcx.lineTo(W - 8, cy0); gcx.stroke();
-    const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#38bdf8';
-    gcx.strokeStyle = acc; gcx.lineCap = 'round';
-    for (let i = 1; i < gyro.trail.length; i++) {
-      gcx.globalAlpha = i / gyro.trail.length * .7; gcx.lineWidth = 1 + i / gyro.trail.length * 4;
-      gcx.beginPath(); gcx.moveTo(cx0 + gyro.trail[i - 1][0] * ex, cy0 + gyro.trail[i - 1][1] * ey); gcx.lineTo(cx0 + gyro.trail[i][0] * ex, cy0 + gyro.trail[i][1] * ey); gcx.stroke();
-    }
-    gcx.globalAlpha = 1; gcx.fillStyle = acc;
-    gcx.beginPath(); gcx.arc(cx0 + gyro.ax * ex, cy0 + gyro.ay * ey, 6, 0, 6.2832); gcx.fill();
-  }
-  requestAnimationFrame(drawGyro);
-}
-requestAnimationFrame(drawGyro);
-
-// ---------------------------------------------------------------- controller artwork
+// ---------------------------------------------------------------- controllers
+// One PadView per controller shown (the preset's "pads" setting, 1 to 4): its own picture, gyro tilt and aim box, and highlight colour. They are
+// handed the connected controllers in order, so the first controller the server sees is player 1.
 const NS = 'http://www.w3.org/2000/svg';
 const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
-const fx = document.getElementById('fx'), icon = document.getElementById('icon');
-const padSvg = document.getElementById('padSvg'), layerSkin = document.getElementById('layerSkin'), vecSkin = document.getElementById('vecSkin');
+const padTpl = document.getElementById('padTpl'), globalDefs = document.getElementById('globalDefs');
 const TRAIL = 14;
+const PLAYER_COLORS = [null, '#f43f5e', '#22c55e', '#f59e0b'];      // player 1 uses the preset's highlight colour, the others these
+const textCache = {};
+const views = [];
+let padStates = [];                                                 // the latest state of every connected controller, in order
 
 // Layered skins are one SVG with a named group per part (see img/steam-controller.svg and img/xbox-controller.svg). The artwork is
 // inverted for the overlay, and a recoloured copy of a part is faded in when its input is active. This table says which group
@@ -427,13 +351,6 @@ function inputState(p) {
            misc1: x & 1, r4: x & 2, l4: x & 4, r5: x & 8, l5: x & 16, touchpad: x & 0x20, c: x & 0x40 };
 }
 
-let layer = null, bodyEl = null;
-const pads = [];                  // trackpads (Steam): finger state + the elements that draw it
-let fingerLoop = false;
-
-// The controller's body is the first image in the artwork; its fill follows the preset's "fill" setting,
-// while the parts on top stay solid so they remain readable at any fill.
-function applyBodyFill() { if (bodyEl) bodyEl.setAttribute('opacity', cfg.fill); }
 
 // Measuring needs layout, and the controller is hidden until one connects, so measure in an off-screen copy.
 function hiddenSvg(vb) {
@@ -456,15 +373,11 @@ function parseViewBox(r) {
   return v.length === 4 && v.every(Number.isFinite) ? v : [0, 0, 1000, 1000];
 }
 
-function resetLayered() {
-  icon.textContent = ''; fx.textContent = ''; document.getElementById('labels').textContent = '';
-  padSvg.querySelectorAll('defs clipPath[id^="lay-"]').forEach(c => c.remove());
-  pads.length = 0; layer = null; bodyEl = null;
-}
+
 // Product of the transforms of the groups a part sits inside (outermost first), up to the artwork group: the frame the artwork draws it in.
-function wrapMatrix(el) {
+function wrapMatrix(el, stop) {
   let m = new DOMMatrix();
-  for (let n = el.parentNode; n && n !== icon; n = n.parentNode) {
+  for (let n = el.parentNode; n && n !== stop; n = n.parentNode) {
     const t = n.transform && n.transform.baseVal;
     if (t && t.numberOfItems) { const c = t.consolidate().matrix; m = new DOMMatrix([c.a, c.b, c.c, c.d, c.e, c.f]).multiply(m); }
   }
@@ -490,116 +403,311 @@ function parseSvg(txt) {
   bad.forEach(el => el.remove());
   return r;
 }
-function buildLayered(name, txt) {
-  const L = LAYERED[name];
-  const lift = L.triggerLift ?? TRIGGER_LIFT;
-  const r = parseSvg(txt);
-  const vb = parseViewBox(r);
-  resetLayered();
 
-  // 1) measure the parts in an off-screen copy: a tight viewBox, the trigger boxes, the trackpad centres
-  const ms = hiddenSvg(vb);
-  for (const n of [...r.childNodes]) ms.appendChild(document.importNode(n, true));
-  const find = (sc, id) => sc.querySelector('#' + CSS.escape(id));
-  const partBox = id => {                                    // a part with a clipped label inside is measured by its outline
-    const el = find(ms, id); if (!el) return null;
-    const outline = el.querySelector('[clip-path]') ? el.querySelector(':scope > circle, :scope > rect, :scope > path') : null;
-    const b = rootBox(outline || el, vb);
-    return lift && Object.values(L.triggers).includes(id) ? { ...b, y: b.y - lift } : b;      // measured where the trigger will be drawn
-  };
-  const ids = [...L.buttons.map(b => b[1]), ...Object.values(L.triggers), L.sticks.l, L.sticks.r, ...(L.trackpads || [])];
-  const boxes = ids.map(partBox).filter(Boolean);
-  const bodyUse = ms.querySelector('use'); if (bodyUse) boxes.push(rootBox(bodyUse, vb));
-  const trigBox = Object.fromEntries(Object.entries(L.triggers).map(([k, id]) => [k, partBox(id)]));
-  const padBox = (L.trackpads || []).map(partBox);
-  const labelBox = Object.fromEntries(Object.keys(L.labels || {}).map(inp => [inp, partBox(L.buttons.find(b => b[0] === inp)[1])]));
-  ms.remove();
-  if (boxes.length) {
-    const x0 = Math.min(...boxes.map(b => b.x)) - 12, y0 = Math.min(...boxes.map(b => b.y)) - 12;
-    const x1 = Math.max(...boxes.map(b => b.x + b.w)) + 12, y1 = Math.max(...boxes.map(b => b.y + b.h)) + 12;
-    padSvg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].map(v => +v.toFixed(1)).join(' '));
-  } else padSvg.setAttribute('viewBox', vb.join(' '));
 
-  // 2) build the real thing
-  for (const n of [...r.childNodes]) icon.appendChild(document.importNode(n, true));
-  bodyEl = [...icon.children].find(e => e.tagName === 'use') || null;
-  // lift the trigger bars: a wrapper that moves them up by `lift` in screen units (their own frame may be scaled or rotated, so the shift is
-  // converted into it). The lit copy follows because it repeats every wrapper's transform.
-  if (lift) for (const id of Object.values(L.triggers)) {
-    const g = find(icon, id); if (!g) continue;
-    const inv = wrapMatrix(g).inverse();
-    const w = mk('g', { transform: `translate(${(-lift * inv.c).toFixed(3)} ${(-lift * inv.d).toFixed(3)})` });
-    g.parentNode.insertBefore(w, g); w.appendChild(g);
-  }
-  if (bodyEl) {
-    bodyEl.classList.add('bodyMain');
-    // The silhouette a theme can outline, drawn just behind the body at full opacity and hidden unless a theme turns it on: the body plus the
-    // parts that sit on its edge (L.outline, the bumpers), so the outline goes around them instead of being covered by them. It stays solid
-    // while the body's own fill is see-through.
-    const ring = mk('g', { class: 'bodyRing' });
-    const copy = bodyEl.cloneNode(true); copy.removeAttribute('opacity'); copy.classList.remove('bodyMain'); ring.appendChild(copy);
-    for (const id of L.outline || []) {
-      const src = find(icon, id); if (!src) continue;
-      const u = mk('use', { href: '#' + id }, ring), m = wrapMatrix(src);
-      if (!m.isIdentity) u.setAttribute('transform', matrixAttr(m));
+// Every id in a piece of artwork is made unique to its controller (a suffix), and every reference to one follows, so that two controllers
+// drawn from the same file don't use each other's parts: <use href="#Thumbstick--L-"> would otherwise find the first one in the page.
+function uniqueIds(root, sfx) {
+  const els = [root, ...root.querySelectorAll('*')];
+  const ids = new Set(els.filter(e => e.id).map(e => e.id));
+  const fix = v => v.replace(/url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)/g, (m, q, id) => ids.has(id) ? `url(#${id}${sfx})` : m);
+  for (const e of els) {
+    for (const a of [...e.attributes]) {
+      const n = a.name.toLowerCase();
+      if (n === 'id') a.value = a.value + sfx;
+      else if (n === 'href' || n.endsWith(':href')) { if (a.value.startsWith('#') && ids.has(a.value.slice(1))) a.value = a.value + sfx; }
+      else { const v = fix(a.value); if (v !== a.value) a.value = v; }
     }
-    icon.insertBefore(ring, bodyEl);
   }
-  applyBodyFill();
-  // The lit copy of a part. If the art put the part inside a transformed wrapper group (an editor does that when you scale or rotate it), the
-  // wrapper's transform has to be repeated on the copy, because a <use> only carries the part's own transform. A clip (triggers) goes on a
-  // plain group around it, so the clip stays in the same coordinates as the measured box.
-  const overlay = (id, parent = fx, clip, keepOwnFrame) => {
-    const src = find(icon, id), m = src && !keepOwnFrame ? wrapMatrix(src) : null;
-    const u = mk('use', { href: '#' + id, filter: 'url(#tint)', opacity: 0 });
-    if (m && !m.isIdentity) u.setAttribute('transform', matrixAttr(m));
-    if (clip) mk('g', { 'clip-path': `url(#${clip})` }, parent).appendChild(u); else parent.appendChild(u);
-    return u;
-  };
-  layer = { name, parts: [], triggers: [], sticks: [], dead: L.triggerDead || 0 };
-  for (const [input, id] of L.buttons) if (find(icon, id)) layer.parts.push([input, overlay(id)]);
-
-  // our own labels, centred on the button's circle (the art's own label, if it has one, is hidden)
-  for (const [inp, text] of Object.entries(L.labels || {})) {
-    const id = L.buttons.find(b => b[0] === inp)[1], g = find(icon, id), b = labelBox[inp]; if (!g || !b) continue;
-    g.querySelectorAll('[clip-path]').forEach(c => c.setAttribute('display', 'none'));
-    const t = mk('text', { class: 'lbl', x: (b.x + b.w / 2).toFixed(1), y: (b.y + b.h / 2 + 1).toFixed(1) }, document.getElementById('labels'));
-    t.style.setProperty('--size', (b.h * 0.42).toFixed(1) + 'px');
-    t.textContent = text;
-  }
-
-  // triggers fill from the top down as they are pulled: the recoloured copy is clipped to a rectangle that grows downwards
-  for (const [key, id] of Object.entries(L.triggers)) {
-    const tb = trigBox[key]; if (!tb || !find(icon, id)) continue;
-    const cp = mk('clipPath', { id: 'lay-' + key }, padSvg.querySelector('defs'));
-    const rect = mk('rect', { x: tb.x - 2, y: tb.y - 2, width: tb.w + 4, height: 0 }, cp);
-    overlay(id, fx, 'lay-' + key).setAttribute('opacity', 1);
-    layer.triggers.push({ key, rect, h: tb.h + 4 });
-  }
-  // sticks move, so each gets a wrapper (artwork + overlay) that is translated
-  for (const side of ['l', 'r']) {
-    const id = L.sticks[side], g = find(icon, id); if (!g) continue;
-    const w = mk('g', {}); g.parentNode.insertBefore(w, g); w.appendChild(g);
-    const fxw = mk('g', {}, fx);
-    // the artwork's wrapper moves in the part's own (possibly scaled) frame, so the lit copy is moved the same way: wrapper matrix, then the shift
-    layer.sticks.push({ side, w, fxw, wrap: wrapMatrix(g), ov: overlay(id, fxw, null, true), travel: L.sticks.travel, press: side === 'l' ? 'ls' : 'rs' });
-  }
-  // trackpads: pressure tint + a finger dot with a short fading trail, in a frame tilted like the pad is drawn
-  (L.trackpads || []).forEach((id, i) => {
-    const b = padBox[i]; if (!b || !find(icon, id)) return;
-    const g = mk('g', {}, fx);
-    const dots = Array.from({ length: TRAIL }, () => mk('circle', { r: 0, fill: 'var(--accent)' }, g));
-    const dot = mk('circle', { r: 0, fill: '#fff', stroke: 'var(--accent)', 'stroke-width': 5 }, g);
-    pads.push({ g, cx: b.x + b.w / 2, cy: b.y + b.h / 2, spanX: b.w * (L.trackpadWide ? 0.9 : 0.8), spanY: L.trackpadWide ? b.h * 0.9 : b.w * 0.8,
-                sign: L.trackpadWide ? 0 : i === 0 ? 1 : -1, ov: L.touchpadClick ? null : overlay(id), dots, dot,
-                trail: [], down: 0, x: .5, y: .5, pr: 0, clicked: false });
-  });
-  pads.forEach(t => t.g.setAttribute('transform', padTransform(t)));
-  if (!fingerLoop) { fingerLoop = true; requestAnimationFrame(drawFingers); }
+  root.querySelectorAll('style').forEach(s => { s.textContent = fix(s.textContent); });
 }
+
 const padTransform = t => `translate(${t.cx} ${t.cy}) rotate(${t.sign * cfg.tprot})`;     // sign 0: no tilt
+function setStick(s, x, y, pressed) {
+  // XInput: y is positive up; apply a small visual deadzone and a circular clamp.
+  let nx = (x || 0) / 32767, ny = -(y || 0) / 32767;
+  const m = Math.hypot(nx, ny);
+  if (m < .08) { nx = ny = 0; } else if (m > 1) { nx /= m; ny /= m; }
+  const tr = `translate(${nx * s.travel} ${ny * s.travel})`;
+  s.w.setAttribute('transform', tr);
+  s.fxw.setAttribute('transform', s.wrap && !s.wrap.isIdentity ? matrixAttr(s.wrap.translate(nx * s.travel, ny * s.travel)) : tr);
+  s.ov.setAttribute('opacity', pressed ? 1 : 0);
+}
+
+// ---- gyro. The server sends the controller's angular speed in rad/s (p.g = [pitch, yaw, roll], SDL's axes) while the pad reports a gyroscope.
+// A gyroscope gives speed, not position, so both displays integrate it and let it relax back to the middle:
+//   tilt - the controller picture leans the way the controller is turned (CSS 3D on the picture);
+//   aim  - a dot in a box moves with the turn and drifts back, leaving a fading trail like the mouse dot.
+const GY = { pitch: 1, yaw: 1, roll: 1, aimX: -1, aimY: -1 };    // +1 / -1: flip one if that direction comes out the wrong way round
+const GYRO_NOISE = 0.04;                                           // rad/s below this counts as still
+const wantTilt = () => cfg.gyro === 'tilt' || cfg.gyro === 'both';
+const wantAim = () => cfg.gyro === 'aim' || cfg.gyro === 'both';
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+class PadView {
+  constructor(i) {
+    this.i = i; this.sfx = '-p' + i;
+    const t = padTpl.content;
+    this.item = t.querySelector('.padItem').cloneNode(true);
+    this.gitem = t.querySelector('.gyroItem').cloneNode(true);
+    this.item.dataset.item = 'pad' + i; this.gitem.dataset.item = 'gyro' + i;           // the names Free layout knows them by
+    root.append(this.item, this.gitem);
+    layoutRO.observe(this.item); layoutRO.observe(this.gitem);
+    this.svg = this.item.querySelector('.padSvg'); this.defs = this.svg.querySelector('defs');
+    this.layerSkin = this.item.querySelector('.layerSkin'); this.icon = this.item.querySelector('.icon');
+    this.fx = this.item.querySelector('.fx'); this.labels = this.item.querySelector('.labels');
+    this.gcx = this.gitem.querySelector('canvas').getContext('2d'); this.gcx.scale(2, 2);        // drawn at 2x so it stays sharp
+    // a recolouring filter of its own: the colour of one controller's lit parts must not follow another's
+    this.tintId = 'tint' + this.sfx;
+    const f = mk('filter', { id: this.tintId, 'color-interpolation-filters': 'sRGB' }, globalDefs);
+    this.flood = mk('feFlood', { 'flood-color': '#38bdf8' }, f); mk('feComposite', { in2: 'SourceAlpha', operator: 'in' }, f);
+    this.skin = null; this.seq = 0; this.loading = Promise.resolve(); this.last = null; this.lastAuto = null;
+    this.layer = null; this.bodyEl = null; this.fingers = [];
+    this.gyro = { have: false, rate: [0, 0, 0], prev: [0, 0, 0], bias: [0, 0, 0], still: 0, pitch: 0, yaw: 0, roll: 0, ax: 0, ay: 0, last: 0, trail: [], tilted: false };
+  }
+  destroy() { layoutRO.unobserve(this.item); layoutRO.unobserve(this.gitem); this.item.remove(); this.gitem.remove(); this.flood.parentNode.remove(); this.fingers.length = 0; this.seq++; }
+
+  get connected() { return !!this.last; }
+  visible() { return cfg.pad === 'on' || (cfg.pad === 'auto' && (this.connected || draft)); }
+  accent() { return (cfg.pads > 1 && cfg.playerColors !== false && PLAYER_COLORS[this.i]) || cfg.accent; }
+  // after the preset or the connection changed
+  update() {
+    const a = this.accent();
+    for (const el of [this.item, this.gitem]) el.style.setProperty('--accent', a);
+    this.flood.setAttribute('flood-color', a);
+    this.item.classList.toggle('hidden', !this.visible());
+    if (this.bodyEl) this.bodyEl.setAttribute('opacity', cfg.fill);     // the body's fill follows the preset; the parts on top stay solid
+    this.fingers.forEach(t => t.g.setAttribute('transform', padTransform(t)));
+    this.updateGyro();
+  }
+  configChanged() { if (cfg.pad !== 'off') this.syncSkin(); this.update(); }
+  setState(p) {                                       // the controller's state from the server, or null when this slot has none
+    this.last = p || null;
+    const g = this.gyro;
+    g.have = !!(p && p.g);                            // the server sends p.g only while the pad reports a gyroscope
+    g.rate = g.have ? p.g : [0, 0, 0];
+    if (!g.have) g.bias = [0, 0, 0];
+    this.update();
+    if (cfg.pad !== 'off') this.syncSkin();
+    this.apply(p || {});
+  }
+
+  updateGyro() {
+    const g = this.gyro;
+    // the aim box is part of the controller display: it is only shown where the controller is (a preset that hides the controller shows no gyro)
+    this.gitem.classList.toggle('hidden', !(wantAim() && this.visible() && ((g.have && this.connected) || draft)));
+    if (!wantTilt() || !g.have) {                    // not tilting: put the picture back
+      if (g.tilted) { this.item.style.transform = ''; g.tilted = false; }
+      g.pitch = g.yaw = g.roll = 0;
+    }
+  }
+  drawGyro(now) {
+    const g = this.gyro;
+    const dt = Math.min(0.05, Math.max(0, (now - g.last) / 1000) || 0.016); g.last = now;
+    // Every gyroscope reports a small constant offset at rest (this one reported 0.27 rad/s), which would read as a steady turn and make the picture
+    // lean and the dot drift for ever. A hand always trembles, so when the readings have not changed for a moment the controller is at rest (or
+    // not sending): the current reading is taken as zero. While it is really turning the reading keeps changing, so the offset is left alone.
+    const raw = g.rate;
+    const moved = Math.max(Math.abs(raw[0] - g.prev[0]), Math.abs(raw[1] - g.prev[1]), Math.abs(raw[2] - g.prev[2]));
+    g.prev = raw.slice();
+    g.still = moved < 0.03 ? g.still + dt : 0;
+    if (g.still > 0.7) for (let i = 0; i < 3; i++) g.bias[i] += (raw[i] - g.bias[i]) * Math.min(1, dt * 4);
+    const [rp, ry, rr] = raw.map((v, i) => v - g.bias[i]).map(v => Math.abs(v) < GYRO_NOISE ? 0 : v);
+    const k = (cfg.gsens || 1), deg = 180 / Math.PI;
+    if (wantTilt() && g.have) {
+      const keep = Math.exp(-dt / 1.2);                // leaks back to level in about a second
+      g.pitch = clamp((g.pitch + GY.pitch * rp * deg * dt * k) * keep, -50, 50);
+      g.yaw   = clamp((g.yaw   + GY.yaw   * ry * deg * dt * k) * keep, -50, 50);
+      g.roll  = clamp((g.roll  + GY.roll  * rr * deg * dt * k) * keep, -60, 60);
+      // right-handed rotation, positive counter-clockwise seen from the positive axis; CSS rotateX/Y/Z turn the other way, hence the minus signs
+      this.item.style.transform = `perspective(900px) rotateX(${-g.pitch.toFixed(1)}deg) rotateY(${-g.yaw.toFixed(1)}deg) rotateZ(${-g.roll.toFixed(1)}deg)`;
+      g.tilted = true;
+    }
+    if (!this.gitem.classList.contains('hidden')) {
+      const keep = Math.exp(-dt / 0.9), gcx = this.gcx;
+      g.ax = clamp((g.ax + GY.aimX * ry * dt * 0.9 * k) * keep, -1, 1);
+      g.ay = clamp((g.ay + GY.aimY * rp * dt * 0.9 * k) * keep, -1, 1);
+      g.trail.push([g.ax, g.ay]); if (g.trail.length > 30) g.trail.shift();
+      const W = 148, H = 118, cx0 = W / 2, cy0 = H / 2, ex = W / 2 - 14, ey = H / 2 - 14;
+      gcx.clearRect(0, 0, W, H);
+      gcx.strokeStyle = 'rgba(255,255,255,.14)'; gcx.lineWidth = 1;
+      gcx.beginPath(); gcx.moveTo(cx0, 8); gcx.lineTo(cx0, H - 8); gcx.moveTo(8, cy0); gcx.lineTo(W - 8, cy0); gcx.stroke();
+      const acc = this.accent();
+      gcx.strokeStyle = acc; gcx.lineCap = 'round';
+      for (let i = 1; i < g.trail.length; i++) {
+        gcx.globalAlpha = i / g.trail.length * .7; gcx.lineWidth = 1 + i / g.trail.length * 4;
+        gcx.beginPath(); gcx.moveTo(cx0 + g.trail[i - 1][0] * ex, cy0 + g.trail[i - 1][1] * ey); gcx.lineTo(cx0 + g.trail[i][0] * ex, cy0 + g.trail[i][1] * ey); gcx.stroke();
+      }
+      gcx.globalAlpha = 1; gcx.fillStyle = acc;
+      gcx.beginPath(); gcx.arc(cx0 + g.ax * ex, cy0 + g.ay * ey, 6, 0, 6.2832); gcx.fill();
+    }
+  }
+
+  // ---- artwork
+  reset() {
+    this.icon.textContent = ''; this.fx.textContent = ''; this.labels.textContent = '';
+    this.defs.querySelectorAll('clipPath').forEach(c => c.remove());
+    this.fingers.length = 0; this.layer = null; this.bodyEl = null;
+  }
+  wantedSkin() {
+    if (cfg.controller && LAYERED[cfg.controller]) return cfg.controller;
+    const d = detectSkin(this.last); if (d) this.lastAuto = d;
+    return d || this.lastAuto || (views[0] && views[0].lastAuto) || 'steam';
+  }
+  syncSkin() {
+    const want = this.wantedSkin();
+    if (want === this.skin) return;
+    this.skin = want;
+    this.svg.dataset.skin = want;                // themes can style per skin: #padSvg[data-skin="xbox"] ...
+    const seq = ++this.seq;
+    this.loading = (async () => {
+      await themeLoading;                        // the theme may replace the artwork, so know which theme we're in first
+      if (seq !== this.seq) return;
+      try {
+        const url = skinUrl(want);
+        const txt = textCache[url] || (textCache[url] = await (await fetch(url)).text());
+        if (seq !== this.seq) return;            // a newer skin was requested while this one loaded
+        this.build(want, txt);
+        this.layerSkin.classList.remove('hidden');
+        this.apply(this.last || {});             // also applies each part's idle colour right away
+      } catch (e) { console.error('could not load controller skin', want, e); }
+    })();
+  }
+  rebuild() { if (this.skin) { this.skin = null; this.syncSkin(); } }      // a new theme may bring (or drop) its own artwork
+
+  build(name, txt) {
+    const L = LAYERED[name], sfx = this.sfx, icon = this.icon, fx = this.fx;
+    const lift = L.triggerLift ?? TRIGGER_LIFT;
+    const r = parseSvg(txt);
+    uniqueIds(r, sfx);
+    const vb = parseViewBox(r);
+    this.reset();
+
+    // 1) measure the parts in an off-screen copy: a tight viewBox, the trigger boxes, the trackpad centres
+    const ms = hiddenSvg(vb);
+    for (const n of [...r.childNodes]) ms.appendChild(document.importNode(n, true));
+    const find = (sc, id) => sc.querySelector('#' + CSS.escape(id + sfx));
+    const partBox = id => {                                    // a part with a clipped label inside is measured by its outline
+      const el = find(ms, id); if (!el) return null;
+      const outline = el.querySelector('[clip-path]') ? el.querySelector(':scope > circle, :scope > rect, :scope > path') : null;
+      const b = rootBox(outline || el, vb);
+      return lift && Object.values(L.triggers).includes(id) ? { ...b, y: b.y - lift } : b;      // measured where the trigger will be drawn
+    };
+    const ids = [...L.buttons.map(b => b[1]), ...Object.values(L.triggers), L.sticks.l, L.sticks.r, ...(L.trackpads || [])];
+    const boxes = ids.map(partBox).filter(Boolean);
+    const bodyUse = ms.querySelector('use'); if (bodyUse) boxes.push(rootBox(bodyUse, vb));
+    const trigBox = Object.fromEntries(Object.entries(L.triggers).map(([k, id]) => [k, partBox(id)]));
+    const padBox = (L.trackpads || []).map(partBox);
+    const labelBox = Object.fromEntries(Object.keys(L.labels || {}).map(inp => [inp, partBox(L.buttons.find(b => b[0] === inp)[1])]));
+    ms.remove();
+    if (boxes.length) {
+      const x0 = Math.min(...boxes.map(b => b.x)) - 12, y0 = Math.min(...boxes.map(b => b.y)) - 12;
+      const x1 = Math.max(...boxes.map(b => b.x + b.w)) + 12, y1 = Math.max(...boxes.map(b => b.y + b.h)) + 12;
+      this.svg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].map(v => +v.toFixed(1)).join(' '));
+    } else this.svg.setAttribute('viewBox', vb.join(' '));
+
+    // 2) build the real thing
+    for (const n of [...r.childNodes]) icon.appendChild(document.importNode(n, true));
+    this.bodyEl = [...icon.children].find(e => e.tagName === 'use') || null;
+    const bodyEl = this.bodyEl;
+    // lift the trigger bars: a wrapper that moves them up by `lift` in screen units (their own frame may be scaled or rotated, so the shift is
+    // converted into it). The lit copy follows because it repeats every wrapper's transform.
+    if (lift) for (const id of Object.values(L.triggers)) {
+      const g = find(icon, id); if (!g) continue;
+      const inv = wrapMatrix(g, icon).inverse();
+      const w = mk('g', { transform: `translate(${(-lift * inv.c).toFixed(3)} ${(-lift * inv.d).toFixed(3)})` });
+      g.parentNode.insertBefore(w, g); w.appendChild(g);
+    }
+    if (bodyEl) {
+      bodyEl.classList.add('bodyMain');
+      // The silhouette a theme can outline, drawn just behind the body at full opacity and hidden unless a theme turns it on: the body plus the
+      // parts that sit on its edge (L.outline, the bumpers), so the outline goes around them instead of being covered by them. It stays solid
+      // while the body's own fill is see-through.
+      const ring = mk('g', { class: 'bodyRing' });
+      const copy = bodyEl.cloneNode(true); copy.removeAttribute('opacity'); copy.classList.remove('bodyMain'); ring.appendChild(copy);
+      for (const id of L.outline || []) {
+        const src = find(icon, id); if (!src) continue;
+        const u = mk('use', { href: '#' + id + sfx }, ring), m = wrapMatrix(src, icon);
+        if (!m.isIdentity) u.setAttribute('transform', matrixAttr(m));
+      }
+      icon.insertBefore(ring, bodyEl);
+      bodyEl.setAttribute('opacity', cfg.fill);
+    }
+    // The lit copy of a part. If the art put the part inside a transformed wrapper group (an editor does that when you scale or rotate it), the
+    // wrapper's transform has to be repeated on the copy, because a <use> only carries the part's own transform. A clip (triggers) goes on a
+    // plain group around it, so the clip stays in the same coordinates as the measured box.
+    const overlay = (id, parent = fx, clip, keepOwnFrame) => {
+      const src = find(icon, id), m = src && !keepOwnFrame ? wrapMatrix(src, icon) : null;
+      const u = mk('use', { href: '#' + id + sfx, filter: `url(#${this.tintId})`, opacity: 0 });
+      if (m && !m.isIdentity) u.setAttribute('transform', matrixAttr(m));
+      if (clip) mk('g', { 'clip-path': `url(#${clip})` }, parent).appendChild(u); else parent.appendChild(u);
+      return u;
+    };
+    const layer = this.layer = { name, parts: [], triggers: [], sticks: [], dead: L.triggerDead || 0 };
+    for (const [input, id] of L.buttons) if (find(icon, id)) layer.parts.push([input, overlay(id)]);
+
+    // our own labels, centred on the button's circle (the art's own label, if it has one, is hidden)
+    for (const [inp, text] of Object.entries(L.labels || {})) {
+      const id = L.buttons.find(b => b[0] === inp)[1], g = find(icon, id), b = labelBox[inp]; if (!g || !b) continue;
+      g.querySelectorAll('[clip-path]').forEach(c => c.setAttribute('display', 'none'));
+      const t = mk('text', { class: 'lbl', x: (b.x + b.w / 2).toFixed(1), y: (b.y + b.h / 2 + 1).toFixed(1) }, this.labels);
+      t.style.setProperty('--size', (b.h * 0.42).toFixed(1) + 'px');
+      t.textContent = text;
+    }
+
+    // triggers fill from the top down as they are pulled: the recoloured copy is clipped to a rectangle that grows downwards
+    for (const [key, id] of Object.entries(L.triggers)) {
+      const tb = trigBox[key]; if (!tb || !find(icon, id)) continue;
+      const clipId = 'lay' + sfx + '-' + key;
+      const cp = mk('clipPath', { id: clipId }, this.defs);
+      const rect = mk('rect', { x: tb.x - 2, y: tb.y - 2, width: tb.w + 4, height: 0 }, cp);
+      overlay(id, fx, clipId).setAttribute('opacity', 1);
+      layer.triggers.push({ key, rect, h: tb.h + 4 });
+    }
+    // sticks move, so each gets a wrapper (artwork + overlay) that is translated
+    for (const side of ['l', 'r']) {
+      const id = L.sticks[side], g = find(icon, id); if (!g) continue;
+      const w = mk('g', {}); g.parentNode.insertBefore(w, g); w.appendChild(g);
+      const fxw = mk('g', {}, fx);
+      // the artwork's wrapper moves in the part's own (possibly scaled) frame, so the lit copy is moved the same way: wrapper matrix, then the shift
+      layer.sticks.push({ side, w, fxw, wrap: wrapMatrix(g, icon), ov: overlay(id, fxw, null, true), travel: L.sticks.travel, press: side === 'l' ? 'ls' : 'rs' });
+    }
+    // trackpads: pressure tint + a finger dot with a short fading trail, in a frame tilted like the pad is drawn
+    (L.trackpads || []).forEach((id, i) => {
+      const b = padBox[i]; if (!b || !find(icon, id)) return;
+      const g = mk('g', {}, fx);
+      const dots = Array.from({ length: TRAIL }, () => mk('circle', { r: 0, fill: 'var(--accent)' }, g));
+      const dot = mk('circle', { r: 0, fill: '#fff', stroke: 'var(--accent)', 'stroke-width': 5 }, g);
+      this.fingers.push({ g, cx: b.x + b.w / 2, cy: b.y + b.h / 2, spanX: b.w * (L.trackpadWide ? 0.9 : 0.8), spanY: L.trackpadWide ? b.h * 0.9 : b.w * 0.8,
+                          sign: L.trackpadWide ? 0 : i === 0 ? 1 : -1, ov: L.touchpadClick ? null : overlay(id), dots, dot,
+                          trail: [], down: 0, x: .5, y: .5, pr: 0, clicked: false });
+    });
+    this.fingers.forEach(t => t.g.setAttribute('transform', padTransform(t)));
+  }
+
+  apply(p) {
+    const layer = this.layer; if (!layer) return;
+    const on = inputState(p);
+    for (const [input, o] of layer.parts) o.setAttribute('opacity', on[input] ? 1 : 0);
+    const dz = layer.dead;
+    for (const t of layer.triggers) {                                                                  // top to bottom
+      const v = p[t.key] || 0, f = v <= dz ? 0 : (v - dz) / (255 - dz);
+      t.rect.setAttribute('height', (f * t.h).toFixed(1));
+    }
+    for (const s of layer.sticks) setStick(s, s.side === 'l' ? p.lx : p.rx, s.side === 'l' ? p.ly : p.ry, !!on[s.press]);
+    (p.t || []).forEach((f, i) => {
+      const t = this.fingers[i]; if (!t) return;
+      t.down = f[0]; t.x = f[1]; t.y = f[2]; t.pr = f[3];
+      // The pads have no click switch: "pressing" is pressure past a threshold (with hysteresis so it doesn't flicker).
+      t.clicked = !!f[0] && f[3] >= (t.clicked ? cfg.tpt * .8 : cfg.tpt);
+      if (t.ov) t.ov.setAttribute('opacity', t.clicked ? 1 : f[0] ? Math.min(1, f[3]) * .6 : 0);
+    });
+  }
+}
+
+// One loop draws every controller's trackpad fingers, another its gyro displays.
 function drawFingers() {
-  for (const t of pads) {
+  for (const v of views) for (const t of v.fingers) {
     t.trail.push(t.down ? [(t.x - .5) * t.spanX, (t.y - .5) * t.spanY] : null);
     if (t.trail.length > TRAIL) t.trail.shift();
     t.dots.forEach((c, i) => {
@@ -613,71 +721,51 @@ function drawFingers() {
   }
   requestAnimationFrame(drawFingers);
 }
-function setStick(s, x, y, pressed) {
-  // XInput: y is positive up; apply a small visual deadzone and a circular clamp.
-  let nx = (x || 0) / 32767, ny = -(y || 0) / 32767;
-  const m = Math.hypot(nx, ny);
-  if (m < .08) { nx = ny = 0; } else if (m > 1) { nx /= m; ny /= m; }
-  const tr = `translate(${nx * s.travel} ${ny * s.travel})`;
-  s.w.setAttribute('transform', tr);
-  s.fxw.setAttribute('transform', s.wrap && !s.wrap.isIdentity ? matrixAttr(s.wrap.translate(nx * s.travel, ny * s.travel)) : tr);
-  s.ov.setAttribute('opacity', pressed ? 1 : 0);
-}
-function applyLayered(p) {
-  if (!layer) return;
-  const on = inputState(p);
-  for (const [input, o] of layer.parts) o.setAttribute('opacity', on[input] ? 1 : 0);
-  const dz = layer.dead;
-  for (const t of layer.triggers) {                                                                  // top to bottom
-    const v = p[t.key] || 0, f = v <= dz ? 0 : (v - dz) / (255 - dz);
-    t.rect.setAttribute('height', (f * t.h).toFixed(1));
-  }
-  for (const s of layer.sticks) setStick(s, s.side === 'l' ? p.lx : p.rx, s.side === 'l' ? p.ly : p.ry, !!on[s.press]);
-  (p.t || []).forEach((f, i) => {
-    const t = pads[i]; if (!t) return;
-    t.down = f[0]; t.x = f[1]; t.y = f[2]; t.pr = f[3];
-    // The pads have no click switch: "pressing" is pressure past a threshold (with hysteresis so it doesn't flicker).
-    t.clicked = !!f[0] && f[3] >= (t.clicked ? cfg.tpt * .8 : cfg.tpt);
-    if (t.ov) t.ov.setAttribute('opacity', t.clicked ? 1 : f[0] ? Math.min(1, f[3]) * .6 : 0);
-  });
+requestAnimationFrame(drawFingers);
+function drawGyros(now) { for (const v of views) v.drawGyro(now); requestAnimationFrame(drawGyros); }
+requestAnimationFrame(drawGyros);
+
+// Make as many PadViews as the preset asks for (1 to 4) and tell each what the preset now says.
+function syncViews() {
+  const n = clamp(Math.round(cfg.pads) || 1, 1, 4);
+  while (views.length > n) views.pop().destroy();
+  while (views.length < n) { const v = new PadView(views.length); views.push(v); v.setState(padStates[v.i] || null); }
+  views.forEach(v => v.configChanged());
 }
 
+// debug (?debug=1): the controllers detected, and the digital button transitions of the first one (touch coordinates are deliberately left out)
 const BTN_NAMES = ['A','B','X','Y','Back','Guide','Start','LS','RS','LB','RB','Up','Down','Left','Right','Misc1','RP1','LP1','RP2','LP2','Touchpad','Misc2','Misc3','Misc4','Misc5','Misc6'];
-// debug: log only digital button transitions (touch coordinates are deliberately left out).
 let prevBits = null; const dbgLog = [];
-function debugPad(p) {
-  const cur = { b: p.b || 0, x: p.x || 0, r: p.r || 0 };
-  if (prevBits) for (const k of ['b', 'x', 'r']) {
-    const diff = cur[k] ^ prevBits[k];
-    for (let i = 0; i < 32; i++) if (diff & (1 << i)) {
-      const down = !!(cur[k] & (1 << i));
-      const label = k === 'x' ? `x${i} (SDL ${BTN_NAMES[i + 15] || '?'})` : k === 'r' ? `r${i} (raw button ${i})` : `xinput mask 0x${(1 << i).toString(16)}`;
-      dbgLog.push(`${down ? '▼ press  ' : '▲ release'} ${label}`);
+function debugPad(states) {
+  const p = states[0];
+  if (p) {
+    const cur = { b: p.b || 0, x: p.x || 0, r: p.r || 0 };
+    if (prevBits) for (const k of ['b', 'x', 'r']) {
+      const diff = cur[k] ^ prevBits[k];
+      for (let i = 0; i < 32; i++) if (diff & (1 << i)) {
+        const down = !!(cur[k] & (1 << i));
+        const label = k === 'x' ? `x${i} (SDL ${BTN_NAMES[i + 15] || '?'})` : k === 'r' ? `r${i} (raw button ${i})` : `xinput mask 0x${(1 << i).toString(16)}`;
+        dbgLog.push(`${down ? '▼ press  ' : '▲ release'} ${label}`);
+      }
     }
-  }
-  prevBits = cur; while (dbgLog.length > 12) dbgLog.shift();
-  const f = `skin=${skin}  type=${p.ty}  name=${p.nm}\n` + (p.t || []).map((t, i) => `pad${i}: ${t[0] ? 'touch' : '-----'} pressure ${t[3]}`).join('   ') + '\n' +
-            (p.g ? `gyro (rad/s) pitch ${p.g[0].toFixed(2)}  yaw ${p.g[1].toFixed(2)}  roll ${p.g[2].toFixed(2)}   zero point ${gyro.bias.map(v => v.toFixed(2)).join(' ')}` : 'gyro: not reported by this controller');
-  document.getElementById('dbg').textContent = f + '\n' + (dbgLog.length ? dbgLog.join('\n') : 'press a button...');
+    prevBits = cur; while (dbgLog.length > 12) dbgLog.shift();
+  } else prevBits = null;
+  const head = states.length ? states.map((s, i) => {
+    const v = views[i];
+    return `#${i + 1} skin=${v && v.skin}  type=${s.ty}  name=${s.nm}\n` + (s.t || []).map((t, j) => `pad${j}: ${t[0] ? 'touch' : '-----'} pressure ${t[3]}`).join('   ') + '\n' +
+           (s.g ? `gyro (rad/s) pitch ${s.g[0].toFixed(2)}  yaw ${s.g[1].toFixed(2)}  roll ${s.g[2].toFixed(2)}   zero point ${v ? v.gyro.bias.map(x => x.toFixed(2)).join(' ') : ''}` : 'gyro: not reported by this controller');
+  }).join('\n') : 'no controller connected';
+  document.getElementById('dbg').textContent = head + '\n' + (dbgLog.length ? dbgLog.join('\n') : 'press a button...');
 }
-
-let lastPad = null;
-function onPad(p) {
-  lastPad = p;
-  if (dbg) debugPad(p);
-  padConnected = !!p.c;
-  gyro.have = !!(p.c && p.g);                              // the server sends p.g only while the pad reports a gyroscope
-  gyro.rate = gyro.have ? p.g : [0, 0, 0];
-  if (!gyro.have) gyro.bias = [0, 0, 0];
-  updatePadVisibility();
-  updateGyro();
-  if (cfg.pad !== 'off') syncSkin();
-  applyPad(p);
+function onPads(list) {
+  padStates = Array.isArray(list) ? list.slice(0, 4) : [];
+  if (dbg) debugPad(padStates);
+  views.forEach((v, i) => v.setState(padStates[i] || null));
 }
 
 // ---------------------------------------------------------------- themes
 // A theme is a folder served from /themes/<id>/ (built-in ones and the user's own themes folder). Its stylesheet is loaded on top of
-// the base styles, and it can replace controller artwork by shipping <name>-controller.svg (layered) or pad-<name>.svg (vector).
+// the base styles, and it can replace controller artwork by shipping <name>-controller.svg.
 let themeList = null, themeId = null, themeInfo = { id: 'default', assets: [], css: '' }, themeLoading = Promise.resolve();
 const encPath = p => p.split('/').map(encodeURIComponent).join('/');
 async function fetchThemes() {
@@ -701,22 +789,19 @@ function applyTheme(id) {
   })();
   return themeLoading;
 }
-const skinFile = name => LAYERED[name] ? `${name}-controller.svg` : `pad-${name}.svg`;
-function skinUrl(name) {
-  const f = skinFile(name);
+const skinUrl = name => {
+  const f = `${name}-controller.svg`;
   return (themeInfo.assets || []).includes(f) ? `/themes/${encodeURIComponent(themeInfo.id)}/${f}` : `img/${f}`;
-}
+};
 function skinsChanged() {                                    // the new theme may bring (or drop) its own artwork
   for (const k of Object.keys(textCache)) delete textCache[k];
-  if (skin) { skin = null; syncSkin(); }                     // rebuild the current skin from wherever its artwork now comes from
+  views.forEach(v => v.rebuild());                           // rebuild each skin from wherever its artwork now comes from
 }
 
-// ---------------------------------------------------------------- controller skins
-// "steam", "xbox", "ps4", "ps5", "switch", "switch2" and "gamecube" are layered artwork (above). The others are vector files (img/pad-<name>.svg) whose parts say which logical input
-// drives them (data-in="south|east|west|north|up|down|left|right|lb|rb|lt|rt|back|start|guide|misc1|ls|rs|touchpad").
-const textCache = {};
-let skin = null, vec = null, skinSeq = 0, lastAutoSkin = null, skinLoading = Promise.resolve();
 
+// ---------------------------------------------------------------- controller skins
+// Every skin is layered artwork (the LAYERED table above). Which one a controller gets: the preset's Controller style, or (Auto-detect) the one
+// that matches what the controller says it is.
 // SDL gamepad types: 1 standard, 2 Xbox 360, 3 Xbox One, 4 PS3, 5 PS4, 6 PS5, 7 Switch Pro, 8-10 Joy-Cons, 11 GameCube
 function detectSkin(p) {
   if (!p || !p.c) return null;
@@ -729,86 +814,92 @@ function detectSkin(p) {
   if ((t >= 7 && t <= 10) || /nintendo|switch|joy-?con|pro controller/.test(n)) return 'switch';
   return 'xbox';                          // Xbox pads, XInput, and any generic pad (the most common layout)
 }
-function wantedSkin() {
-  if (cfg.controller && cfg.controller !== 'auto') return cfg.controller;
-  const d = detectSkin(lastPad); if (d) lastAutoSkin = d;
-  return d || lastAutoSkin || 'steam';
-}
-function syncSkin() {
-  const want = wantedSkin();
-  if (want === skin) return;
-  skin = want;
-  padSvg.dataset.skin = want;                // themes can style per skin: #padSvg[data-skin="xbox"] ...
-  const seq = ++skinSeq;
-  skinLoading = (async () => {
-    await themeLoading;                      // the theme may replace the artwork, so know which theme we're in first
-    if (seq !== skinSeq) return;
-    try {
-      const url = skinUrl(want);
-      const txt = textCache[url] || (textCache[url] = await (await fetch(url)).text());
-      if (seq !== skinSeq) return;           // a newer skin was requested while this one loaded
-      if (LAYERED[want]) { vec = null; vecSkin.textContent = ''; buildLayered(want, txt); layerSkin.classList.remove('hidden'); vecSkin.classList.add('hidden'); }
-      else { resetLayered(); buildVector(txt); vecSkin.classList.remove('hidden'); layerSkin.classList.add('hidden'); }
-      applyPad(lastPad || {});               // also applies each part's idle colour right away
-    } catch (e) { console.error('could not load controller skin', want, e); }
-  })();
-}
-function buildVector(txt) {
-  const r = parseSvg(txt);
-  const vb = parseViewBox(r);
-  vecSkin.textContent = '';
-  padSvg.querySelectorAll('defs clipPath[id^="lay-"]').forEach(c => c.remove());
-  for (const n of [...r.childNodes]) vecSkin.appendChild(document.importNode(n, true));
-  padSvg.setAttribute('viewBox', r.getAttribute('viewBox') || '0 0 1000 640');
-  const area = vecSkin.querySelector('[data-in="touchpad"] .tp-area');
-  const parts = [...vecSkin.querySelectorAll('[data-in]')].map(el => ({ el, input: el.dataset.in, idle: el.dataset.idle || null }));
 
-  // triggers fill from the top down as they are pulled: a copy in the highlight colour, clipped to a growing rectangle
-  const ms = hiddenSvg(vb);                                  // (the local box of a shape needs layout, so measure an off-screen copy)
-  const triggers = [];
-  for (const part of parts) {
-    if (part.input !== 'lt' && part.input !== 'rt') continue;
-    const probe = ms.appendChild(part.el.cloneNode(true)), b = probe.getBBox();
-    const id = `lay-v-${part.input}`;
-    const cp = mk('clipPath', { id }, padSvg.querySelector('defs'));
-    const rect = mk('rect', { x: b.x - 1, y: b.y - 1, width: b.width + 2, height: 0 }, cp);   // in the part's own (possibly tilted) coordinates
-    const hot = part.el.cloneNode(true);
-    hot.removeAttribute('data-in'); hot.removeAttribute('data-idle'); hot.style.setProperty('--part', 'var(--accent)');
-    hot.setAttribute('clip-path', `url(#${id})`);
-    part.el.after(hot);
-    triggers.push({ key: part.input, rect, h: b.height + 2 });
+// ---------------------------------------------------------------- free layout
+// By default the keyboard, mouse and controllers sit in a row. With "Free layout" on (cfg.layout is an object, not null) every piece is placed
+// where the preset says: cfg.layout = { kb: {x, y}, mouse: {x, y}, pad0: ..., gyro0: ..., pad1: ... } in the overlay's own pixels (before the Size
+// scale). Pieces that have no place yet start where the row put them. In the Settings preview a piece can be dragged; the new places are sent back
+// to Settings, which saves them.
+const LAYOUT_PAD = 8;
+let layoutDrag = null, layoutQueued = false;
+const layoutItems = () => [...root.querySelectorAll(':scope > [data-item]')].filter(el => !el.classList.contains('hidden'));
+const layoutRO = new ResizeObserver(() => scheduleLayout());
+function scheduleLayout() {
+  if (layoutQueued) return;
+  layoutQueued = true;
+  requestAnimationFrame(() => { layoutQueued = false; applyLayout(); });
+}
+function clearLayout() {
+  root.classList.remove('free');
+  root.style.width = root.style.height = '';
+  for (const el of root.querySelectorAll(':scope > [data-item]')) el.style.left = el.style.top = '';
+}
+function applyLayout() {
+  document.body.classList.toggle('free', !!cfg.layout);
+  if (!cfg.layout) { clearLayout(); return; }
+  const z = cfg.scale || 1, items = layoutItems(), L = cfg.layout;
+  // places for pieces that don't have one: where the row put them (measured in the row, so switch back to it for a moment)
+  const missing = items.filter(el => !L[el.dataset.item]);
+  if (missing.length) {
+    clearLayout();
+    const rr = root.getBoundingClientRect();
+    for (const el of missing) { const r = el.getBoundingClientRect(); L[el.dataset.item] = { x: Math.round((r.left - rr.left) / z), y: Math.round((r.top - rr.top) / z) }; }
+    if (draft) parent.postMessage({ type: 'layout', layout: L }, location.origin);
   }
-  ms.remove();
-  vec = {
-    parts, triggers,
-    sticks: [...vecSkin.querySelectorAll('[data-stick]')].map(el => ({ el, side: el.dataset.stick, travel: +el.dataset.travel || 20 })),
-    area: area && { x: +area.getAttribute('x'), y: +area.getAttribute('y'), w: +area.getAttribute('width'), h: +area.getAttribute('height') },
-    finger: area && mk('circle', { class: 'finger', r: 0 }, area.parentNode),
+  root.classList.add('free');
+  if (!items.length) { root.style.width = root.style.height = '0'; return; }
+  const place = items.map(el => { const r = el.getBoundingClientRect(); return { el, p: L[el.dataset.item], w: r.width / z, h: r.height / z }; });
+  // the top-left of the pieces on show sits at the edge (frozen while one is being dragged, so the others don't slide about under the pointer)
+  const o = layoutDrag ? layoutDrag.origin : { x: Math.min(...place.map(i => i.p.x)), y: Math.min(...place.map(i => i.p.y)) };
+  let W = 0, H = 0;
+  for (const i of place) {
+    i.el.style.left = (i.p.x - o.x + LAYOUT_PAD) + 'px'; i.el.style.top = (i.p.y - o.y + LAYOUT_PAD) + 'px';
+    W = Math.max(W, i.p.x - o.x + i.w); H = Math.max(H, i.p.y - o.y + i.h);
+  }
+  root.style.width = Math.ceil(W + 2 * LAYOUT_PAD) + 'px'; root.style.height = Math.ceil(H + 2 * LAYOUT_PAD) + 'px';
+}
+// Dragging (Settings preview only). A piece snaps to the edges and middles of the others when it is near them, and to a 4px grid otherwise.
+function startLayoutDrag(e) {
+  if (!draft || !cfg.layout || e.button !== 0) return false;
+  const el = e.target.closest && e.target.closest('#root > [data-item]'); if (!el) return false;
+  const z = cfg.scale || 1, L = cfg.layout, key = el.dataset.item, items = layoutItems();
+  applyLayout();                                                             // make sure every piece has a place
+  const sizes = Object.fromEntries(items.map(i => { const r = i.getBoundingClientRect(); return [i.dataset.item, { w: r.width / z, h: r.height / z }]; }));
+  const origin = { x: Math.min(...items.map(i => L[i.dataset.item].x)), y: Math.min(...items.map(i => L[i.dataset.item].y)) };
+  layoutDrag = { key, x0: e.clientX, y0: e.clientY, p0: { ...L[key] }, sizes, origin, z };
+  document.body.style.cursor = 'move';
+  e.preventDefault();
+  return true;
+}
+function snapAxis(v, size, others, grid = 4, near = 8) {
+  let best = null;
+  for (const [pos, osize] of others) for (const [mine, theirs] of [[0, 0], [size, osize], [size / 2, osize / 2], [0, osize], [size, 0]]) {
+    const d = (pos + theirs) - (v + mine);
+    if (Math.abs(d) <= near && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+  }
+  return best === null ? Math.round(v / grid) * grid : v + best;
+}
+document.addEventListener('pointermove', e => {
+  if (!layoutDrag) return;
+  const d = layoutDrag, s = d.sizes[d.key];
+  const others = Object.entries(d.sizes).filter(([k]) => k !== d.key).map(([k, sz]) => ({ p: cfg.layout[k], sz }));
+  cfg.layout[d.key] = {
+    x: Math.round(snapAxis(d.p0.x + (e.clientX - d.x0) / d.z, s.w, others.map(o => [o.p.x, o.sz.w]))),
+    y: Math.round(snapAxis(d.p0.y + (e.clientY - d.y0) / d.z, s.h, others.map(o => [o.p.y, o.sz.h]))),
   };
+  applyLayout();
+});
+function endLayoutDrag() {
+  if (!layoutDrag) return;
+  layoutDrag = null; document.body.style.cursor = '';
+  const L = cfg.layout, items = layoutItems();
+  const mx = Math.min(...items.map(i => L[i.dataset.item].x)), my = Math.min(...items.map(i => L[i.dataset.item].y));
+  for (const k of Object.keys(L)) L[k] = { x: L[k].x - mx, y: L[k].y - my };           // keep the top-left piece at 0,0
+  applyLayout();
+  parent.postMessage({ type: 'layout', layout: L }, location.origin);
 }
-
-function applyPad(p) { if (LAYERED[skin]) applyLayered(p); else applyVector(p); }
-function applyVector(p) {
-  if (!vec) return;
-  const on = inputState(p);
-  for (const { el, input, idle } of vec.parts) {
-    let color = null;                                           // null = the CSS idle colour
-    if (on[input]) color = 'var(--accent)'; else if (idle) color = idle;
-    if (color) el.style.setProperty('--part', color); else el.style.removeProperty('--part');
-  }
-  for (const t of vec.triggers) t.rect.setAttribute('height', ((p[t.key] || 0) / 255 * t.h).toFixed(1));       // top to bottom
-  for (const s of vec.sticks) {                                  // XInput: y is positive up; small deadzone, circular clamp
-    let nx = (s.side === 'l' ? p.lx : p.rx) / 32767 || 0, ny = -(s.side === 'l' ? p.ly : p.ry) / 32767 || 0;
-    const m = Math.hypot(nx, ny);
-    if (m < .08) nx = ny = 0; else if (m > 1) { nx /= m; ny /= m; }
-    s.el.setAttribute('transform', `translate(${(nx * s.travel).toFixed(1)} ${(ny * s.travel).toFixed(1)})`);
-  }
-  if (vec.finger) {                                              // touchpad finger (PlayStation)
-    const f = (p.t || [])[0];
-    if (f && f[0]) { vec.finger.setAttribute('cx', vec.area.x + f[1] * vec.area.w); vec.finger.setAttribute('cy', vec.area.y + f[2] * vec.area.h); vec.finger.setAttribute('r', 12); }
-    else vec.finger.setAttribute('r', 0);
-  }
-}
+document.addEventListener('pointerup', endLayoutDrag);
+document.addEventListener('pointercancel', endLayoutDrag);
 
 // ---------------------------------------------------------------- draft only: drag a key's right edge to resize it
 // Only the Settings preview does this (never the page OBS shows). Sizes are kept per preset; the keyboard re-renders as you drag, and
@@ -838,11 +929,13 @@ function initKeyResize() {
       if (el) place(el.getBoundingClientRect());
       return;
     }
+    if (layoutDrag) return;
     const hit = edgeAt(e.clientX, e.clientY);
-    if (hit) { place(hit.r); document.body.style.cursor = 'ew-resize'; } else { handle.style.display = 'none'; document.body.style.cursor = ''; }
+    if (hit) { place(hit.r); document.body.style.cursor = 'ew-resize'; }
+    else { handle.style.display = 'none'; document.body.style.cursor = cfg.layout && e.target.closest && e.target.closest('#root > [data-item]') ? 'move' : ''; }
   });
   document.addEventListener('pointerdown', e => {
-    const hit = edgeAt(e.clientX, e.clientY); if (!hit) return;
+    const hit = edgeAt(e.clientX, e.clientY); if (!hit) { startLayoutDrag(e); return; }
     const vk = +hit.el.dataset.vk, w0 = widthOf(vk);
     const ppu = hit.r.width / (w0 * (KB.U + KB.G) - KB.G) * (KB.U + KB.G);       // screen px per key unit, whatever zoom is applied
     drag = { vk, w0, w: w0, x0: e.clientX, ppu };
@@ -873,7 +966,7 @@ function connect() {
     else if (m.m) setMouseButton(m.m[0], !!m.m[1]);
     else if (m.d) addMotion(m.d[0], m.d[1]);
     else if (m.s) { if (m.s[1]) onScroll(m.s[1]); }
-    else if (m.p) onPad(m.p);
+    else if (m.p) onPads(m.p);
   };
   ws.onclose = () => setTimeout(connect, 1000);
 }
@@ -900,7 +993,7 @@ async function init() {
         if (e.data.settings) { settings = { ...settings, ...e.data.settings }; for (const n of Object.keys(held)) setMouseButton(n, held[n]); }
         applyConfig(normalize(e.data.preset));
         // Report the size the overlay needs, so Settings can tell you what to type into OBS.
-        Promise.all([themeLoading, skinLoading]).then(() => setTimeout(() => {
+        Promise.all([themeLoading, ...views.map(v => v.loading)]).then(() => setTimeout(() => {
           const r = root.getBoundingClientRect();
           parent.postMessage({ type: 'size', token: e.data.token, w: Math.ceil(r.width), h: Math.ceil(r.height) }, location.origin);
         }, 80));

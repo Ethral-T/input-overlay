@@ -129,6 +129,11 @@ def main():
     def open_themes_folder(*_):
         os.startfile(str(server.themes.Themes(server.ROOT / "themes").ensure_user_dir()))
 
+    def open_update_page(*_):
+        url = server.update_snapshot()["url"]
+        if url:
+            webbrowser.open(url)
+
     def toggle_autostart(icon, item):
         set_autostart(not autostart_enabled())
 
@@ -137,6 +142,8 @@ def main():
         os._exit(0)
 
     menu = pystray.Menu(
+        pystray.MenuItem(lambda item: f"Update available: {server.update_snapshot()['latest']}", open_update_page,
+                         visible=lambda item: server.update_snapshot()["available"]),
         pystray.MenuItem("Open settings", open_settings, default=True),
         pystray.MenuItem("Active preset", pystray.Menu(active_items)),
         pystray.MenuItem("Copy OBS URL", lambda *_: copy_to_clipboard(base + "/")),

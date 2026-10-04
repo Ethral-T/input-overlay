@@ -22,30 +22,45 @@ const KB = (() => {
     "←:37 ↓:40 →:39",
   ];
 
+  // The numeric keypad. Token: label:vk:width:height (height in rows). The first row is an empty spacer so it lines up with the number row.
+  // Numpad Enter has the same virtual-key code as the main Enter (the program tells them apart by Windows' "extended key" flag and reports
+  // it as 269), and the digits only count while NumLock is on (with it off Windows reports Home, End, the arrows and so on instead).
+  const NUMPAD = [
+    "_:0:4",
+    "NumLk:144 /:111 *:106 -:109",
+    "7:103 8:104 9:105 +:107:1:2",
+    "4:100 5:101 6:102",
+    "1:97 2:98 3:99 Enter:269:1:2",
+    "0:96:2 .:110",
+  ];
+
   // `sizes` maps a key's vk code to a width in key units, overriding the default. Keys after a resized key in its row shift to follow.
   function place(rows, x0, sizes) {
     const keys = [];
     rows.forEach((line, y) => {
       let x = x0;
       for (const tok of line.split(' ')) {
-        const [label, vk, w = '1'] = tok.split(':');
+        const [label, vk, w = '1', h = '1'] = tok.split(':');
         let width = parseFloat(w);
         if (label !== '_') {
           const o = sizes && sizes[vk];
           if (o > 0) width = o;
-          keys.push({ label, vk: +vk, x, y, w: width });
+          keys.push({ label, vk: +vk, x, y, w: width, h: parseFloat(h) });
         }
         x += width;
       }
     });
     return keys;
   }
-  function layout(sizes) {
+  function layout(sizes, numpad) {
     const main = place(MAIN, 0, sizes);
     const mainWidth = Math.max(...main.map(k => k.x + k.w));
-    return [...main, ...place(NAV, mainWidth + .35, sizes)];
+    const nav = place(NAV, mainWidth + .35, sizes);
+    if (!numpad) return [...main, ...nav];
+    return [...main, ...nav, ...place(NUMPAD, Math.max(...nav.map(k => k.x + k.w)) + .35, sizes)];
   }
-  const ALL = layout(null);                                   // the default layout (key lists, groups, default widths)
+  const ALL = layout(null, true);                             // every key there is (key lists, groups, default widths)
+  const NUMPAD_VKS = layout(null, true).slice(layout(null, false).length).map(k => k.vk);
   const DEFAULT_W = Object.fromEntries(ALL.map(k => [k.vk, k.w]));
   const MIN_W = 0.5, MAX_W = 12, SNAP = 0.25;                 // limits for resizing, and the step it snaps to
 
@@ -56,6 +71,7 @@ const KB = (() => {
     'Digits': range(48, 57),
     'F-row': range(112, 123),
     'Arrows': [37, 38, 39, 40],
+    'Numpad': NUMPAD_VKS,
     'Modifiers': [160, 161, 162, 163, 164, 165, 91, 92, 20, 9],
     'WASD': [87, 65, 83, 68],
     'WASD + common': [49, 50, 51, 52, 53, 9, 81, 87, 69, 82, 65, 83, 68, 70, 160, 90, 88, 67, 86, 162, 164, 32],
@@ -69,16 +85,17 @@ const KB = (() => {
    *   visible: Set of vk codes to show, or null for all
    *   editor:  render every key (hidden ones get class "off") and don't crop
    *   sizes:   per-key width overrides, {vk: units}
+   *   numpad:  include the numeric keypad
    */
-  function render(host, { visible = null, editor = false, sizes = null } = {}) {
+  function render(host, { visible = null, editor = false, sizes = null, numpad = false } = {}) {
     host.textContent = '';
     const els = new Map();
-    const all = sizes && Object.keys(sizes).length ? layout(sizes) : ALL;
+    const all = layout(sizes, numpad);
     const shown = all.filter(k => editor || !visible || visible.has(k.vk));
     if (!shown.length) { host.style.width = host.style.height = '0'; return els; }
     const crop = editor ? all : shown;
     const minX = Math.min(...crop.map(k => k.x)), minY = Math.min(...crop.map(k => k.y));
-    const maxX = Math.max(...crop.map(k => k.x + k.w)), maxY = Math.max(...crop.map(k => k.y + 1));
+    const maxX = Math.max(...crop.map(k => k.x + k.w)), maxY = Math.max(...crop.map(k => k.y + k.h));
     host.style.position = 'relative';
     host.style.width = ((maxX - minX) * (U + G) - G) + 'px';
     host.style.height = ((maxY - minY) * (U + G) - G) + 'px';
@@ -91,7 +108,7 @@ const KB = (() => {
       el.dataset.w = k.w;
       Object.assign(el.style, {
         position: 'absolute', left: (k.x - minX) * (U + G) + 'px', top: (k.y - minY) * (U + G) + 'px',
-        width: k.w * (U + G) - G + 'px', height: U + 'px',
+        width: k.w * (U + G) - G + 'px', height: k.h * (U + G) - G + 'px',
       });
       host.appendChild(el);
       if (!els.has(k.vk)) els.set(k.vk, []);
@@ -100,5 +117,5 @@ const KB = (() => {
     return els;
   }
 
-  return { ALL, GROUPS, GENERIC, render, layout, DEFAULT_W, MIN_W, MAX_W, SNAP, U, G };
+  return { ALL, NUMPAD_VKS, GROUPS, GENERIC, render, layout, DEFAULT_W, MIN_W, MAX_W, SNAP, U, G };
 })();
