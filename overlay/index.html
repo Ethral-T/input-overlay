@@ -14,7 +14,7 @@
     --unit: 44px;
     --gap: 4px;
     --label-outline: none;                        /* optional outline for key labels, e.g. "0 0 2px #000, 0 0 2px #000"; off unless a theme sets it */
-    --label-size: 14px;                           /* ONE size for every key label and the mouse's L/R; long labels are not shrunk. Themes may change it */
+    --label-size: 14px;                           /* ONE size for every key label and the mouse's L/R; long labels are not shrunk or wrapped. Themes may change it */
   }
   html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; display: flex; }          /* alignment inside the Browser Source */
@@ -27,11 +27,11 @@
     background: var(--key-bg); border: 1px solid var(--key-border); border-radius: 7px;
     color: var(--key-fg); font-size: var(--label-size); font-weight: 600; transition: background .06s, transform .06s;
     text-shadow: var(--label-outline);
-    text-align: center;                           /* for the rare label that wraps, see below */
+    white-space: nowrap;                          /* a label is always one line, see below */
   }
-  /* There is deliberately no smaller size for long labels (Shift, Space, PrtSc ...): every key uses --label-size, so a row of keys reads evenly.
-     If a theme's font is too wide for a label on its key, the label wraps onto a second line at the same size instead, and only at the
-     break point keyboard.js marks for it (Prt|Sc, Pg|Up ...). Labels have no spaces, so nothing else can wrap. */
+  /* There is deliberately no smaller size for long labels (Shift, Space, PrtSc ...) and no wrapping: every key uses --label-size, so a row
+     of keys reads evenly. A theme picks a --label-size at which its widest 1-unit labels (Home, Pause, PrtSc, ScrLk, PgUp, PgDn) still fit
+     on one line with a couple of pixels to spare. */
   .key.on { background: var(--accent); border-color: #fff; color: #06121a; transform: translateY(2px); }
 
   /* ---- mouse ---- */

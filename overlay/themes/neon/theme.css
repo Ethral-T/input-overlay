@@ -9,7 +9,8 @@
 /* ---- keyboard ---- */
 .key {
   font-weight: 700; border: 2px solid var(--accent); text-shadow: 0 0 6px var(--accent);
-  /* (no letter-spacing: with it, "Home" no longer fit on one line at the shared label size) */
+  letter-spacing: -0.05em;      /* bold Segoe UI is wider than the default theme's semibold: this keeps "Home" (the widest 1-unit label)
+                                   about 2.4px inside its key at 14px instead of touching the border */
   box-shadow: 0 0 8px var(--accent), inset 0 0 8px rgba(255, 255, 255, .06);
 }
 .key.on { color: #04050c; text-shadow: none; transform: none; box-shadow: 0 0 16px var(--accent), 0 0 34px var(--accent); }
