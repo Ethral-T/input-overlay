@@ -17,7 +17,7 @@ if not exist .venv ( python -m venv .venv || goto :fail )
 .venv\Scripts\python -m pip install -q --require-hashes -r requirements-dev.lock || goto :fail
 if not exist lib\SDL3.dll ( echo lib\SDL3.dll is missing - see README. & goto :fail )
 if not exist lib\libusb-1.0.dll ( echo lib\libusb-1.0.dll is missing - see README. & goto :fail )
-.venv\Scripts\python -c "import hashlib,sys;[sys.exit('lib/%s does not match lib/SHA256SUMS.txt'%n) for h,n in (l.split() for l in open('lib/SHA256SUMS.txt')) if hashlib.sha256(open('lib/'+n,'rb').read()).hexdigest()!=h]" || goto :fail
+.venv\Scripts\python -c "import hashlib,sys;[sys.exit('lib/'+n+' does not match lib/SHA256SUMS.txt') for h,n in (l.split() for l in open('lib/SHA256SUMS.txt')) if hashlib.sha256(open('lib/'+n,'rb').read()).hexdigest()!=h]" || goto :fail
 .venv\Scripts\python appicon.py || goto :fail
 
 set MODE=--onedir
