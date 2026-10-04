@@ -19,11 +19,24 @@ licence; none of them is changed by this project.
 | [PyInstaller](https://pyinstaller.org) | 6.x | GPL-2.0-or-later with a special exception | builds the program; the exception allows the built program to be distributed under any licence |
 | OpenSSL, libffi, the Microsoft Visual C++ runtime | | Apache-2.0, MIT, Microsoft redistributable terms | DLLs that come with Python |
 
+## Checksums of the bundled libraries
+
+The two DLLs in `lib/` are the unmodified official builds. Their SHA-256 checksums are recorded here and in `lib/SHA256SUMS.txt`, and the build
+fails if either file does not match, so you can compare them with a copy you download yourself from the projects above:
+
+```
+1f98969319302a100931f4385e5918a0bd53ab07773040682d22e7edb54858c0  lib/SDL3.dll         (SDL 3.4.16, Windows x64 release)
+7cbf37e76dae9c840c7e8dbf7348ee8897dcc86c8ba45e46ada60b89411569f7  lib/libusb-1.0.dll  (libusb 1.0.30, VS2022\MS64\dll)
+```
+
+The Python packages are pinned, with hashes, in `requirements.lock` (the program) and `requirements-dev.lock` (the program plus the build tools),
+and builds install them with `--require-hashes`, so every build uses exactly the same packages.
+
 ## About the LGPL components
 
 libusb, pynput and pystray are used unmodified. You can replace them: `libusb-1.0.dll` is an ordinary file in the program's `lib` folder (swap in any
 build of libusb 1.0), and the Python packages are installed from the public package index when the program is built from this repository, so
-building with another version of them (see `requirements.txt` and `build.bat`) gives a program that uses it. Their source code is available from
+building with another version of them (edit `requirements.txt`, regenerate the lock files, and run `build.bat`) gives a program that uses it. Their source code is available from
 the project links above.
 
 ## Trademarks

@@ -178,7 +178,8 @@ build.bat onefile    builds a single dist\InputOverlay.exe (slower to start)
 
 The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x64 release from
 [libsdl-org/SDL](https://github.com/libsdl-org/SDL)) and `libusb-1.0.dll` (libusb 1.0.30, `VS2022\MS64\dll` from the Windows .7z at
-[libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository. Distribute the whole `dist\InputOverlay` folder.
+[libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository, and the build checks them against `lib/SHA256SUMS.txt`. Python packages are pinned with hashes in
+`requirements.lock` and `requirements-dev.lock` (regenerate them with `pip-compile --generate-hashes` after changing `requirements.txt`). Distribute the whole `dist\InputOverlay` folder.
 
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).

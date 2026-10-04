@@ -46,7 +46,8 @@ def port_in_use(host, port):
 
 def copy_to_clipboard(text):
     # URLs are plain ASCII once percent-encoded, so the built-in `clip` is enough (no extra dependency).
-    subprocess.run(["clip"], input=text.encode("ascii", "ignore"), creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+    clip = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "clip.exe"      # full path: never a look-alike found in another folder
+    subprocess.run([str(clip)], input=text.encode("ascii", "ignore"), creationflags=subprocess.CREATE_NO_WINDOW, check=False)
 
 
 # ---- autostart (HKCU Run key, current user only) -------------------------------------------------

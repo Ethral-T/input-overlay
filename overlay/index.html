@@ -474,10 +474,26 @@ const matrixAttr = m => `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`;
 // The trigger bars are drawn this many art units higher than the file has them, so they sit clear of the bumpers. A skin can override it
 // with `triggerLift` in its LAYERED row (0 = draw them exactly where the file puts them).
 const TRIGGER_LIFT = 16;
+// Artwork can come from a theme someone else made, so it is parsed and stripped to passive drawing before it joins the page: no script,
+// no embedded HTML, no event-handler attributes, and links only to parts of the same file or to embedded images.
+function parseSvg(txt) {
+  const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
+  const bad = [];
+  for (const el of [r, ...r.querySelectorAll('*')]) {
+    if (/^(script|foreignobject|iframe|object|embed|handler|listener)$/i.test(el.localName)) { bad.push(el); continue; }
+    for (const a of [...el.attributes]) {
+      const n = a.name.toLowerCase();
+      if (n.startsWith('on')) el.removeAttribute(a.name);
+      else if (n === 'href' || n.endsWith(':href')) { if (!/^(#|data:image\/(png|jpeg|gif|webp);base64,)/i.test(a.value.trim())) el.removeAttribute(a.name); }
+    }
+  }
+  bad.forEach(el => el.remove());
+  return r;
+}
 function buildLayered(name, txt) {
   const L = LAYERED[name];
   const lift = L.triggerLift ?? TRIGGER_LIFT;
-  const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
+  const r = parseSvg(txt);
   const vb = parseViewBox(r);
   resetLayered();
 
@@ -738,7 +754,7 @@ function syncSkin() {
   })();
 }
 function buildVector(txt) {
-  const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
+  const r = parseSvg(txt);
   const vb = parseViewBox(r);
   vecSkin.textContent = '';
   padSvg.querySelectorAll('defs clipPath[id^="lay-"]').forEach(c => c.remove());
