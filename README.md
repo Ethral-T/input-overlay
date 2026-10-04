@@ -184,6 +184,12 @@ The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).
 
+**Command-line options.** `InputOverlay.exe` takes the same options as `server.py`: `--port N` (use a different port, for example if
+something else already uses 8765), `--host` (default `127.0.0.1`) and `--pad N`. If you change the port, use it in the OBS Browser Source
+URL and in your Stream Deck URLs too (for example `http://127.0.0.1:8800/`).
+
+**Tests.** `pip install -r requirements-test.txt`, then `python -m pytest tests`.
+
 **Controller artwork** is layered SVG: one named group per part, drawn dark and inverted by the overlay, so a new controller is a matter
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in
 `overlay/img/`. Keep the group ids if you edit one, and see the `LAYERED` table in `overlay/index.html` for how parts map to inputs.
