@@ -142,8 +142,13 @@ class Config:
                 name = clean_name(item.get("name", ""))
                 if name:
                     self.presets[name] = clean(item)
-        except (OSError, ValueError, AttributeError):
+        except FileNotFoundError:
             pass
+        except (OSError, ValueError, AttributeError):
+            try:                         # unreadable: keep a copy instead of silently overwriting the user's presets with the starter ones
+                os.replace(self.path, self.path.with_suffix(".bad"))
+            except OSError:
+                pass
         seeded = not self.presets
         if seeded:
             for item in SEED:
@@ -170,7 +175,8 @@ class Config:
         os.replace(tmp, self.path)
 
     def as_list(self):
-        return [{"name": n, **p} for n, p in self.presets.items()]
+        with self.lock:
+            return [{"name": n, **p} for n, p in self.presets.items()]
 
     def put(self, name, preset, rename_from=None):
         name = clean_name(name)

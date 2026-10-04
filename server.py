@@ -16,6 +16,8 @@ import asyncio
 import ctypes
 import json
 import os
+import re
+import secrets
 import signal
 import sys
 import threading
@@ -376,11 +378,16 @@ def gamepad_thread(index):
     if not backends:
         print("[pad] no controller backend available; controller disabled")
         return
-    last, announced = None, False
+    last = None
     while True:
         state = None
         for b in backends:  # first backend that sees a pad wins
-            state = b.poll()
+            try:
+                state = b.poll()
+            except Exception as e:  # noqa: BLE001 - one misbehaving backend must not stop the controller loop
+                print(f"[pad] {b.name} error: {e!r}")
+                state = None
+                time.sleep(1)
             if state:
                 break
         if state is None:
@@ -415,7 +422,8 @@ async def guard(request, handler):
         raise web.HTTPForbidden(text="unexpected Host header")
     # Switching presets is a plain GET, so a web page could trigger it with an <img>. Browsers label such requests;
     # Stream Deck / curl / OBS don't send this header at all, so they are unaffected.
-    if request.path.startswith("/api/") and request.headers.get("Sec-Fetch-Site") == "cross-site":
+    # "same-site" (another program on localhost:<other port>) is refused too: only this page itself may call the API.
+    if request.path.startswith("/api/") and request.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
         raise web.HTTPForbidden(text="cross-site request refused")
     return await handler(request)
 
@@ -437,14 +445,29 @@ async def ws_handler(request):
 
 
 # Themes are CSS + assets that people share, so the overlay pages refuse to load anything from outside this server
-# (a theme can't phone home with @import / url(https://...)) and, being CSS-only, can't run script.
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-       "font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self'; object-src 'none'; base-uri 'self'")
+# (a theme can't phone home with @import / url(https://...)) and can't run script: only this page's own scripts carry the
+# per-request nonce, so script smuggled in through a theme's artwork has no nonce and is blocked.
+HOST_RE = re.compile(r"^[A-Za-z0-9.\-]+(:\d{1,5})?$|^\[[0-9A-Fa-f:]+\](:\d{1,5})?$")
+
+
+def page_csp(request, nonce):
+    host = request.host if HOST_RE.match(request.host or "") else "127.0.0.1"
+    return (f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            f"font-src 'self' data:; connect-src 'self' ws://{host}; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; "
+            "base-uri 'self'; form-action 'self'")
+
+
+# Files from a theme folder are only ever sub-resources; if someone opens one directly, nothing in it may run.
+THEME_FILE_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:"
 
 
 def static_page(name):
     async def handler(request):
-        return web.FileResponse(ROOT / name, headers={"Cache-Control": "no-store", "Content-Security-Policy": CSP})
+        nonce = secrets.token_urlsafe(16)
+        html = (ROOT / name).read_text(encoding="utf-8").replace("<script>", f'<script nonce="{nonce}">')
+        return web.Response(text=html, content_type="text/html", charset="utf-8",
+                            headers={"Cache-Control": "no-store", "Content-Security-Policy": page_csp(request, nonce),
+                                     "X-Content-Type-Options": "nosniff"})
     return handler
 
 
@@ -457,7 +480,8 @@ async def theme_file(request):
     p = request.app["themes"].resolve(request.match_info["id"], request.match_info["path"])
     if p is None:
         raise web.HTTPNotFound()
-    resp = web.FileResponse(p, headers={"Cache-Control": "no-cache"})
+    resp = web.FileResponse(p, headers={"Cache-Control": "no-cache", "Content-Security-Policy": THEME_FILE_CSP,
+                                        "X-Content-Type-Options": "nosniff"})
     resp.content_type = CONTENT_TYPES.get(p.suffix.lower(), "application/octet-stream")
     return resp
 
@@ -583,7 +607,7 @@ async def broadcaster():
         for ws in list(hub.clients):
             try:
                 await ws.send_str(msg)
-            except ConnectionError:
+            except Exception:  # noqa: BLE001 - a broken client must never stop the stream for everyone else
                 hub.clients.discard(ws)
 
 
@@ -610,6 +634,7 @@ async def main(args):
     app["themes"].ensure_user_dir()          # so the themes folder (and its README) exists for people to drop themes into
     app["loopback_only"] = args.host in LOOPBACK
     app.add_routes([web.get("/", static_page("index.html")), web.get("/settings", static_page("settings.html")),
+                    web.get("/index.html", static_page("index.html")), web.get("/settings.html", static_page("settings.html")),
                     web.get("/ws", ws_handler), web.get("/api/presets", api_list), web.put("/api/settings", api_put_settings),
                     web.get("/api/themes", api_themes), web.post("/api/themes/open", api_open_themes),
                     web.get("/themes/{id}/{path:.+}", theme_file),

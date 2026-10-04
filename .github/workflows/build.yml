@@ -20,21 +20,26 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: requirements*.lock
 
       - name: Install build requirements
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.lock
 
-      - name: Check the bundled libraries are present
+      - name: Check the bundled libraries are present and unchanged
         run: |
-          foreach ($f in "lib/SDL3.dll", "lib/libusb-1.0.dll", "lib/libusb-NOTICE.txt", "LICENSE", "THIRD_PARTY_NOTICES.md") {
+          foreach ($f in "lib/SDL3.dll", "lib/libusb-1.0.dll", "lib/libusb-NOTICE.txt", "lib/SHA256SUMS.txt", "LICENSE", "THIRD_PARTY_NOTICES.md") {
             if (-not (Test-Path $f)) { throw "$f is missing from the repository" }
+          }
+          foreach ($line in Get-Content lib/SHA256SUMS.txt) {
+            $hash, $name = $line -split "\s+", 2
+            $actual = (Get-FileHash "lib/$name" -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $hash) { throw "lib/$name does not match lib/SHA256SUMS.txt" }
           }
 
       - name: Draw the icon
@@ -52,8 +57,12 @@ jobs:
 
       - name: Package
         id: pack
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "dev-${{ github.run_number }}" }
+          $version = if ($env:REF_TYPE -eq "tag") { $env:REF_NAME } else { "dev-$($env:RUN_NUMBER)" }
           $name = "InputOverlay_$version"
           New-Item -ItemType Directory -Path "pkg" | Out-Null
           Copy-Item "dist/InputOverlay" "pkg/InputOverlay" -Recurse
@@ -82,7 +91,7 @@ jobs:
       # Code signing would go here (for example the SignPath GitHub Action), between "Package" and the upload: it takes the built folder,
       # signs InputOverlay.exe, and the zip is then made from the signed folder. Left out until the project is approved.
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ steps.pack.outputs.name }}
           path: |
@@ -97,7 +106,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: release
           merge-multiple: true
@@ -106,4 +115,6 @@ jobs:
       - name: Create a draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" release/* --repo "${{ github.repository }}" --draft --title "${{ github.ref_name }}" --generate-notes
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: gh release create "$TAG" release/* --repo "$REPO" --draft --title "$TAG" --generate-notes
