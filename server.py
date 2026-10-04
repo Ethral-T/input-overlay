@@ -619,6 +619,32 @@ async def motion_flusher():
             hub.emit({"d": [dx, dy]})
 
 
+async def stuck_key_sweeper():
+    """Release keys whose key-up Windows never delivered (Win+L, a UAC prompt, focus moving to an admin game).
+    Without this they stay in _down_keys forever: the overlay shows them held and the next real press is swallowed
+    by the auto-repeat filter in on_press. Caveat: while a higher-integrity (admin) window has focus Windows may
+    report keys as up, but that only releases keys the hook couldn't see properly anyway.
+
+    The low-level keyboard hook runs a moment BEFORE Windows updates the state GetAsyncKeyState reads, so a key that was
+    pressed just now can briefly read as "up". To never drop a key that is really held, a key is only released after it
+    has read as up on two sweeps in a row (a quarter of a second apart)."""
+    user32 = ctypes.WinDLL("user32")              # loaded here, not at import time, so the module still imports off Windows (tests)
+    user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    user32.GetAsyncKeyState.restype = ctypes.c_short
+    looked_up = set()                             # keys that read as up on the previous sweep
+    while True:
+        await asyncio.sleep(0.25)
+        up_now = set()
+        for vk in list(_down_keys):                       # iterate a copy: the keyboard hook thread edits the set
+            if not user32.GetAsyncKeyState(vk) & 0x8000:  # high bit set = down right now
+                if vk in looked_up:                       # up on two sweeps in a row: the key-up really was missed
+                    _down_keys.discard(vk)
+                    hub.emit({"k": [vk, 0]})
+                else:
+                    up_now.add(vk)                        # maybe just the hook being ahead of Windows: check again next time
+        looked_up = up_now
+
+
 async def main(args):
     hub.loop = asyncio.get_running_loop()
     hub.queue = asyncio.Queue()
@@ -652,7 +678,7 @@ async def main(args):
     if not app["loopback_only"]:
         print("WARNING: listening on a non-loopback address - anyone who can reach it can read your keystrokes.")
     print("Press Ctrl+C to stop.")
-    await asyncio.gather(broadcaster(), motion_flusher())
+    await asyncio.gather(broadcaster(), motion_flusher(), stuck_key_sweeper())
 
 
 if __name__ == "__main__":

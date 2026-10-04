@@ -138,6 +138,7 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 - **A mouse side button is the wrong one:** tick **Mouse Button Invert** in Settings.
 - **Keys don't show in a game:** games running as administrator can block input hooks from a normal program. Run Input Overlay as administrator too.
 - **The controller isn't detected:** add `?debug=1` to the URL to see what the program detects and which inputs it receives.
+- **The overlay is blank in OBS after starting the PC:** the overlay page is served by the Input Overlay program itself, so if OBS starts before it (for example when both start with Windows) the Browser Source loads nothing and does not retry on its own. Start Input Overlay first, or tick the Browser Source option **Refresh browser when scene becomes active**, or right-click the source, Properties, **Refresh cache of current page**.
 - **The numpad** isn't displayed yet.
 
 ## Security and privacy
