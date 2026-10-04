@@ -58,6 +58,7 @@ const KB = (() => {
     'Arrows': [37, 38, 39, 40],
     'Modifiers': [160, 161, 162, 163, 164, 165, 91, 92, 20, 9],
     'WASD': [87, 65, 83, 68],
+    // keep in sync with _WASD in config.py (the starter "WASD + Mouse" preset): same keys, different language, so they can't share one list
     'WASD + common': [49, 50, 51, 52, 53, 9, 81, 87, 69, 82, 65, 83, 68, 70, 160, 90, 88, 67, 86, 162, 164, 32],
   };
 
