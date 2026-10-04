@@ -862,6 +862,14 @@ function initKeyResize() {
 // ---------------------------------------------------------------- socket
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    // Key and button releases sent while we were disconnected were lost, so let go of everything; anything still
+    // physically held is lit again by its next press.
+    for (const vk of [...down]) setKey(vk, 0);
+    for (const n of Object.keys(held)) setMouseButton(n, false);
+    // On a re-connect (buildId is already set) a "reload" message may have been missed too, so re-fetch the config.
+    if (buildId && !draft) refresh();
+  };
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.v) {          // build id: a new build means this page is stale (OBS keeps showing the old copy), so reload it
