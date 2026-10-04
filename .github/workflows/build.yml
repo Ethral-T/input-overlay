@@ -31,6 +31,11 @@ jobs:
       - name: Install build requirements
         run: python -m pip install --require-hashes -r requirements-dev.lock
 
+      - name: Run tests
+        run: |
+          python -m pip install --require-hashes --no-deps -r requirements-test.lock
+          python -m pytest -q tests
+
       - name: Check the bundled libraries are present and unchanged
         run: |
           foreach ($f in "lib/SDL3.dll", "lib/libusb-1.0.dll", "lib/libusb-NOTICE.txt", "lib/SHA256SUMS.txt", "LICENSE", "THIRD_PARTY_NOTICES.md") {
@@ -76,6 +81,10 @@ jobs:
           Copy-Item "dist/InputOverlay" "pkg/InputOverlay" -Recurse
           Copy-Item "lib/libusb-NOTICE.txt" "pkg/InputOverlay/"
           Copy-Item "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md" "pkg/"
+          # the README tells users to copy docs/theme-template/, so ship the theme guide and template (not the promo image)
+          New-Item -ItemType Directory -Path "pkg/docs" | Out-Null
+          Copy-Item "docs/THEMES.md" "pkg/docs/"
+          Copy-Item "docs/theme-template" "pkg/docs/theme-template" -Recurse
           Compress-Archive -Path "pkg/*" -DestinationPath "$name.zip"
           $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256.txt"

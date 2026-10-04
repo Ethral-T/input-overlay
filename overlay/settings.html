@@ -174,7 +174,7 @@
       <span class="muted">The preview reacts to your real input. <b>Drag the right edge of a key to resize it</b> (the rest of the overlay moves to fit); double-click an edge to reset that key. With <b>Free layout</b> on (Position &amp; size), drag the keyboard, mouse or a controller to move it.</span>
     </div>
     <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe></div>
-    <iframe id="mf" src="/?draft=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
+    <iframe id="mf" src="/?draft=1&static=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
   </div>
 
   <div class="card">
@@ -202,7 +202,7 @@
         <label class="setting"><span class="name">Show mouse</span>
           <span class="ctl"><select id="mouse"><option value="1">Shown</option><option value="0">Hidden</option></select></span></label>
         <label class="setting"><span class="name">Movement sensitivity<small>How far the dot travels for a given amount of mouse movement.</small></span>
-          <span class="ctl"><input type="range" id="sens" min="0.2" max="3" step="0.1"><span class="val" id="sensV"></span></span></label>
+          <span class="ctl"><input type="range" id="sens" min="0.1" max="5" step="0.1"><span class="val" id="sensV"></span></span></label>
         <div class="setting"><div class="name"><div class="nameRow"><label for="swapSide">Mouse Button Invert</label><button type="button" class="scope" data-scope="swapSide" aria-pressed="true" title="Click to switch between all presets and just this preset">all presets</button></div><small>Swaps which side button is drawn as Mouse 4 and Mouse 5.</small></div>
           <span class="ctl"><input type="checkbox" id="swapSide"></span></div>
       </div>
@@ -222,9 +222,11 @@
         <div class="setting"><div class="name"><div class="nameRow"><label for="gyro">Gyro</label><button type="button" class="scope" data-scope="gyro" aria-pressed="false" title="Click to switch between all presets and just this preset">this preset</button></div><small>For controllers with motion sensors (Steam, PlayStation, Switch). <b>Tilt</b> leans the controller picture as you turn it; <b>Aim</b> adds a box with a dot that follows the turn and leaves a trail. Only shown where the controller is. The Stream Deck gyro buttons switch this to <i>all presets</i>.</small></div>
           <span class="ctl"><select id="gyro"><option value="off">Off</option><option value="tilt">Tilt the picture</option><option value="aim">Aim dot</option><option value="both">Both</option></select></span></div>
         <label class="setting"><span class="name">Gyro sensitivity<small>How far the picture leans and how fast the dot moves for the same turn.</small></span>
-          <span class="ctl"><input type="range" id="gsens" min="0.2" max="4" step="0.1"><span class="val" id="gsensV"></span></span></label>
+          <span class="ctl"><input type="range" id="gsens" min="0.1" max="5" step="0.1"><span class="val" id="gsensV"></span></span></label>
         <label class="setting"><span class="name">Trackpad click pressure<small>How hard you press a trackpad before it counts as a click.</small></span>
-          <span class="ctl"><input type="range" id="tpt" min="0.1" max="1" step="0.05"><span class="val" id="tptV"></span></span></label>
+          <span class="ctl"><input type="range" id="tpt" min="0.05" max="1" step="0.05"><span class="val" id="tptV"></span></span></label>
+        <label class="setting"><span class="name">Trackpad tilt<small>How far the Steam Controller's trackpad dots are rotated, in degrees.</small></span>
+          <span class="ctl"><input type="range" id="tprot" min="-45" max="45" step="1"><span class="val" id="tprotV"></span></span></label>
       </div>
     </div>
 
@@ -252,7 +254,7 @@
         <label class="setting"><span class="name">Free layout<small>Arrange the pieces yourself: turn this on, then drag the keyboard, mouse and controllers around in the preview. They snap to each other's edges.</small></span>
           <span class="ctl"><button type="button" id="layoutReset" title="Put everything back where the row had it">Reset</button><input type="checkbox" id="freeLayout"></span></label>
         <label class="setting"><span class="name">Size<small>Scales the overlay and keeps it sharp. Better than stretching the source in OBS.</small></span>
-          <span class="ctl"><input type="range" id="scale" min="0.5" max="2" step="0.05"><span class="val" id="scaleV"></span></span></label>
+          <span class="ctl"><input type="range" id="scale" min="0.25" max="4" step="0.05"><span class="val" id="scaleV"></span></span></label>
       </div>
     </div>
 
@@ -293,11 +295,15 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const status = (msg, err) => { $('status').textContent = msg; $('status').className = err ? 'err' : ''; };
 
 async function load(selectName) {
-  const data = await (await api('')).json();
-  presets = data.presets; active = data.active; settings = data.settings;
-  renderList();
-  select(presets.find(p => p.name === selectName) || presets[0]);
-  measureAll();
+  try {
+    const data = await (await api('')).json();
+    presets = data.presets; active = data.active; settings = data.settings;
+    adopted = clone(settings);
+    dirtySettings.clear(); dirtyScope.clear();     // we just adopted the server's copy, so nothing is pending
+    renderList();
+    select(presets.find(p => p.name === selectName) || presets[0]);
+    measureAll();
+  } catch (e) { status('Could not load: ' + e.message, true); }
 }
 function renderList() {
   const ul = $('list'); ul.textContent = '';
@@ -316,18 +322,27 @@ function select(p) {
 
 // ---------------------------------------------------------------- saving
 function schedSave() { status('Saving…'); clearTimeout(saveTimer); saveTimer = setTimeout(save, 350); }
-async function flushThen(fn) { if (saveTimer) { clearTimeout(saveTimer); await save(); } fn(); }
-async function save() {
+async function flushThen(fn) { if (saveTimer) { clearTimeout(saveTimer); save(); } await saving; fn(); }   // also waits for a save already in flight
+// Saves run one at a time. `origName` (used for the rename's ?from=) only updates once a save finishes, so a second save
+// started while one is still in flight would send the old name and the server would create a second preset.
+let saving = Promise.resolve();
+function save() {
   saveTimer = null;
-  const from = origName !== cur.name ? origName : null;
-  const r = await api('/' + encodeURIComponent(cur.name) + (from ? '?from=' + encodeURIComponent(from) : ''),
-    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cur) });
-  if (!r.ok) { status(await r.text() || 'Could not save', true); return; }
-  const saved = await r.json();
-  const i = presets.findIndex(p => p.name === origName);
-  if (i >= 0) presets[i] = saved; else presets.push(saved);
-  if (active === from) active = saved.name;   // the server keeps the active preset through a rename
-  origName = saved.name; renderList(); renderUrl(); status('Saved ✓');
+  saving = saving.then(doSave, doSave);
+  return saving;
+}
+async function doSave() {
+  try {
+    const from = origName !== cur.name ? origName : null;       // worked out here, when this save actually runs
+    const r = await api('/' + encodeURIComponent(cur.name) + (from ? '?from=' + encodeURIComponent(from) : ''),
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cur) });
+    if (!r.ok) { status(await r.text() || 'Could not save', true); return; }
+    const saved = await r.json();
+    const i = presets.findIndex(p => p.name === origName);
+    if (i >= 0) presets[i] = saved; else presets.push(saved);
+    if (active === from) active = saved.name;   // the server keeps the active preset through a rename
+    origName = saved.name; renderList(); renderUrl(); status('Saved ✓');
+  } catch (e) { status('Could not save: ' + e.message, true); }
 }
 function changed() { sendPreview(); schedSave(); queueMeasure(); }
 
@@ -346,9 +361,9 @@ function syncControls() {
   $('playerColors').checked = cur.playerColors !== false;
   $('accent').value = valueOf('accent');
   document.querySelectorAll('#agrid button').forEach(b => b.classList.toggle('on', b.dataset.a === cur.align));
-  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'gsens']) {
+  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'gsens', 'tprot']) {
     const v = SHARED.includes(k) ? valueOf(k) : cur[k];
-    $(k).value = v; $(k + 'V').textContent = fmt(v);
+    $(k).value = v; $(k + 'V').textContent = show(k, v);
   }
   $('swapSide').checked = !!valueOf('swapSide');
   syncTheme();
@@ -370,11 +385,39 @@ $('layoutReset').onclick = () => { cur.layout = {}; changed(); };
 $('pads').onchange = e => { cur.pads = +e.target.value; changed(); };
 $('playerColors').onchange = e => { cur.playerColors = e.target.checked; changed(); };
 let settingsTimer = null;
+// Which shared settings (and "all presets" tags) this page changed since the last save. Something else (a Stream Deck gyro URL) can change
+// the shared settings while this page is open, so we only send back what the user actually touched, never our whole (possibly stale) copy.
+// A setting counts as touched two ways: a handler marks it explicitly, or saveSettings finds it differs from `adopted`, the server copy we
+// last adopted. Diffing against that adopted copy (not a fresh fetch) is safe: a value changed elsewhere differs from the fresh fetch but
+// not from `adopted`, so it is never mistaken for our edit and sent back stale. Only values we ourselves assigned can differ from it.
+const dirtySettings = new Set(), dirtyScope = new Set();
+let adopted = null;                          // clone of the server's shared settings as of the last load/save
 function saveSettings() {                    // settings that apply to every preset are saved separately from presets
   status('Saving…'); clearTimeout(settingsTimer);
   settingsTimer = setTimeout(async () => {
-    const r = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
-    status(r.ok ? 'Saved ✓' : 'Could not save', !r.ok);
+    try {
+      // A handler may have just assigned settings[k] without marking it; catch those by comparing with what we last adopted.
+      if (adopted) {
+        for (const k in settings) if (k !== 'scope' && settings[k] !== adopted[k]) dirtySettings.add(k);
+        for (const k in settings.scope) if (settings.scope[k] !== adopted.scope[k]) dirtyScope.add(k);
+      }
+      const sentSettings = [...dirtySettings], sentScope = [...dirtyScope];
+      // Fetch the server's current copy first and lay only our changes on top of it, so we don't revert changes made elsewhere.
+      const data = await (await api('')).json();
+      const merged = data.settings;
+      for (const k of sentSettings) merged[k] = settings[k];
+      for (const k of sentScope) merged.scope[k] = settings.scope[k];
+      const r = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged) });
+      if (!r.ok) { status(await r.text() || 'Could not save', true); return; }
+      const local = settings;
+      settings = await r.json();                // adopt what the server stored
+      adopted = clone(settings);                // remember it before the pending keys are re-applied below
+      sentSettings.forEach(k => dirtySettings.delete(k)); sentScope.forEach(k => dirtyScope.delete(k));
+      // Anything changed while the request was in flight is still waiting for its own save; keep showing it.
+      dirtySettings.forEach(k => settings[k] = local[k]); dirtyScope.forEach(k => settings.scope[k] = local.scope[k]);
+      active = data.active; renderList(); renderUrl(); syncControls(); sendPreview();   // the "active" badge may have changed too
+      status('Saved ✓');
+    } catch (e) { status('Could not save: ' + e.message, true); }
   }, 300);
 }
 $('swapSide').onchange = e => setValue('swapSide', e.target.checked);
@@ -383,18 +426,20 @@ $('accent').oninput = e => setValue('accent', e.target.value);
 const SHARED = ['opacity', 'fill'];
 const valueOf = k => settings.scope[k] ? settings[k] : cur[k];
 function setValue(k, v) {
-  if (settings.scope[k]) { settings[k] = v; sendPreview(); saveSettings(); }
+  if (settings.scope[k]) { settings[k] = v; dirtySettings.add(k); sendPreview(); saveSettings(); }
   else { cur[k] = v; changed(); }
 }
 const fmt = v => (+v).toFixed(2).replace(/0$/, '');
-for (const k of ['scale', 'sens', 'tpt', 'gsens']) $(k).oninput = e => {
-  cur[k] = parseFloat(e.target.value); $(k + 'V').textContent = fmt(cur[k]); changed();
+const show = (k, v) => k === 'tprot' ? Math.round(v) + '°' : fmt(v);       // the trackpad tilt is shown in degrees
+for (const k of ['scale', 'sens', 'tpt', 'gsens', 'tprot']) $(k).oninput = e => {
+  cur[k] = parseFloat(e.target.value); $(k + 'V').textContent = show(k, cur[k]); changed();
 };
 for (const k of SHARED) $(k).oninput = e => { const v = parseFloat(e.target.value); $(k + 'V').textContent = fmt(v); setValue(k, v); };
 document.querySelectorAll('button.scope').forEach(b => b.onclick = () => {
   const k = b.dataset.scope;
-  if (!settings.scope[k]) settings[k] = cur[k];       // going shared: start from what you're looking at now
+  if (!settings.scope[k]) { settings[k] = cur[k]; dirtySettings.add(k); }       // going shared: start from what you're looking at now
   settings.scope[k] = !settings.scope[k];             // going per-preset: each preset's own stored value comes back
+  dirtyScope.add(k);
   syncControls(); sendPreview(); saveSettings();
 });
 document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => {
@@ -590,9 +635,11 @@ $('sdClose').onclick = () => $('sdDlg').close();
 $('sdDlg').addEventListener('click', e => { if (e.target === $('sdDlg')) $('sdDlg').close(); });       // a click on the dark backdrop closes it
 if (location.hash === '#streamdeck') setTimeout(() => $('btnSd').click(), 400);                       // handy for a direct link
 $('btnLive').onclick = () => flushThen(async () => {
-  const r = await fetch('/api/switch/' + encodeURIComponent(origName));
-  if (!r.ok) { status(await r.text(), true); return; }
-  active = (await r.json()).active; renderList(); renderUrl(); status('Active preset changed ✓');
+  try {
+    const r = await fetch('/api/switch/' + encodeURIComponent(origName));
+    if (!r.ok) { status(await r.text(), true); return; }
+    active = (await r.json()).active; renderList(); renderUrl(); status('Active preset changed ✓');
+  } catch (e) { status('Could not switch: ' + e.message, true); }
 });
 function sendPreview() { const w = $('pv').contentWindow; if (w) w.postMessage({ type: 'cfg', preset: cur, settings }, location.origin); }
 $('pv').addEventListener('load', sendPreview);
@@ -618,8 +665,12 @@ $('btnDel').onclick = async () => {
   if (presets.length < 2) { status("Can't delete the last preset", true); return; }
   if (!confirm(`Delete preset "${origName}"? Any OBS source using it will fall back to the first preset.`)) return;
   clearTimeout(saveTimer); saveTimer = null;
-  await api('/' + encodeURIComponent(origName), { method: 'DELETE' });
-  await load();
+  try {
+    await saving;                              // let any save already in flight finish first so it can't re-create the preset
+    const r = await api('/' + encodeURIComponent(origName), { method: 'DELETE' });
+    if (!r.ok) { status(await r.text() || 'Could not delete', true); return; }
+    await load();
+  } catch (e) { status('Could not delete: ' + e.message, true); }
 };
 
 // ---------------------------------------------------------------- themes

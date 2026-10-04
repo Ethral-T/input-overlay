@@ -1,15 +1,28 @@
 """Input Overlay server.
 
-Captures global keyboard / mouse / XInput-controller input on Windows and
+Captures global keyboard / mouse input and controller input on Windows and
 streams it over a WebSocket to the overlay page (overlay/index.html), which is
-meant to be loaded as an OBS Browser Source.
+meant to be loaded as an OBS Browser Source. Controllers are read through SDL3,
+the GameCube adapter and Switch 2 Pro readers (both via libusb) and XInput.
 
 Messages (JSON, server -> overlay):
+  {"v": "<build id>"}           sent first on connect; overlays reload themselves if it changed
+  {"reload": 1}                 presets or settings changed; overlays re-read them
   {"k": [vk, 1|0]}              key down / up (Windows virtual-key code)
   {"m": [button, 1|0]}          mouse button: left right middle x1 x2
   {"d": [dx, dy]}               raw mouse movement since last flush
   {"s": [dx, dy]}               scroll wheel ticks
-  {"p": [{...}, ...]}           gamepad states, one per connected controller (buttons bitmask, triggers, sticks)
+  {"p": [{...}, ...]}           gamepad states, one per connected controller ([] when none is connected), each with these fields:
+      c   always 1 (a controller that disconnects is simply left out of the list)
+      b   buttons as an XInput bitmask
+      x   extra SDL buttons (misc, paddles, touchpad click ...) as a bitmask, bit = SDL index - 15
+      r   raw joystick buttons as a bitmask (debugging)
+      t   touchpads: [[down, x 0..1, y 0..1, pressure], ...]
+      ty  SDL gamepad type number
+      nm  controller name
+      lt, rt          triggers 0..255
+      lx, ly, rx, ry  sticks -32767..32767 (y up)
+      g   [pitch, yaw, roll] in rad/s, only when the pad reports a gyroscope
 """
 import argparse
 import asyncio
@@ -420,17 +433,34 @@ def gamepad_thread(index):
         print("[pad] no controller backend available; controller disabled")
         return
     last = None
+    # A backend that throws is skipped for a while (1 s, doubling up to 30 s, back to normal after one good poll) so the
+    # others keep running at full rate. Its error message is also throttled: the first one is printed, then at most one per minute.
+    retry_at = {}              # backend -> time.monotonic() before which it is not polled
+    delay = {}                 # backend -> current back-off in seconds
+    last_print = {}            # backend -> time.monotonic() of the last printed error
+    repeats = {}               # backend -> errors seen since that print
     while True:
         states = []
         for b in backends:                          # every backend adds the controllers it sees (the fallback only if there are none yet)
             if getattr(b, "fallback", False) and states:
                 continue
+            now = time.monotonic()
+            if now < retry_at.get(b, 0):            # backing off after an error: this backend adds nothing this time
+                continue
             try:
                 res = b.poll()
+                delay.pop(b, None)                  # one good poll resets the back-off
             except Exception as e:  # noqa: BLE001 - one misbehaving backend must not stop the controller loop
-                print(f"[pad] {b.name} error: {e!r}")
                 res = None
-                time.sleep(1)
+                delay[b] = min(30, delay.get(b, 0.5) * 2)
+                retry_at[b] = now + delay[b]
+                if now - last_print.get(b, -60) >= 60:
+                    extra = f" (repeated {repeats.get(b, 0)} times)" if repeats.get(b) else ""
+                    print(f"[pad] {b.name} error: {e!r}{extra}")
+                    last_print[b] = now
+                    repeats[b] = 0
+                else:
+                    repeats[b] = repeats.get(b, 0) + 1
             states.extend([res] if isinstance(res, dict) else res or [])
         states = states[:MAX_PADS]
         if states != last:
@@ -716,6 +746,33 @@ async def motion_flusher():
             hub.emit({"d": [dx, dy]})
 
 
+async def stuck_key_sweeper():
+    """Release keys whose key-up Windows never delivered (Win+L, a UAC prompt, focus moving to an admin game).
+    Without this they stay in _down_keys forever: the overlay shows them held and the next real press is swallowed
+    by the auto-repeat filter in on_press. Caveat: while a higher-integrity (admin) window has focus Windows may
+    report keys as up, but that only releases keys the hook couldn't see properly anyway.
+
+    The low-level keyboard hook runs a moment BEFORE Windows updates the state GetAsyncKeyState reads, so a key that was
+    pressed just now can briefly read as "up". To never drop a key that is really held, a key is only released after it
+    has read as up on two sweeps in a row (a quarter of a second apart)."""
+    user32 = ctypes.WinDLL("user32")              # loaded here, not at import time, so the module still imports off Windows (tests)
+    user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    user32.GetAsyncKeyState.restype = ctypes.c_short
+    looked_up = set()                             # keys that read as up on the previous sweep
+    while True:
+        await asyncio.sleep(0.25)
+        up_now = set()
+        for vk in list(_down_keys):                       # iterate a copy: the keyboard hook thread edits the set
+            real = 13 if vk == 269 else vk                    # 269 = numpad Enter's own code, not a real VK; VK_RETURN covers both Enters
+            if not user32.GetAsyncKeyState(real) & 0x8000:    # high bit set = down right now
+                if vk in looked_up:                       # up on two sweeps in a row: the key-up really was missed
+                    _down_keys.discard(vk)
+                    hub.emit({"k": [vk, 0]})
+                else:
+                    up_now.add(vk)                        # maybe just the hook being ahead of Windows: check again next time
+        looked_up = up_now
+
+
 async def main(args):
     hub.loop = asyncio.get_running_loop()
     hub.queue = asyncio.Queue()
@@ -750,7 +807,7 @@ async def main(args):
     if not app["loopback_only"]:
         print("WARNING: listening on a non-loopback address - anyone who can reach it can read your keystrokes.")
     print("Press Ctrl+C to stop.")
-    await asyncio.gather(broadcaster(), motion_flusher(), update_checker())
+    await asyncio.gather(broadcaster(), motion_flusher(), update_checker(), stuck_key_sweeper())
 
 
 if __name__ == "__main__":

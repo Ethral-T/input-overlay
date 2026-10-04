@@ -13,6 +13,8 @@
     --key-fg: #e8edf5;
     --unit: 44px;
     --gap: 4px;
+    --label-outline: none;                        /* optional outline for key labels, e.g. "0 0 2px #000, 0 0 2px #000"; off unless a theme sets it */
+    --label-size: 14px;                           /* ONE size for every key label and the mouse's L/R; long labels are not shrunk or wrapped. Themes may change it */
   }
   html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; display: flex; }          /* alignment inside the Browser Source */
@@ -25,9 +27,13 @@
   .key {
     flex: none; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
     background: var(--key-bg); border: 1px solid var(--key-border); border-radius: 7px;
-    color: var(--key-fg); font-size: 14px; font-weight: 600; transition: background .06s, transform .06s;
+    color: var(--key-fg); font-size: var(--label-size); font-weight: 600; transition: background .06s, transform .06s;
+    text-shadow: var(--label-outline);
+    white-space: nowrap;                          /* a label is always one line, see below */
   }
-  :where(.key[data-len="4"], .key[data-len="5"], .key[data-len="6"]) { font-size: 11px; }
+  /* There is deliberately no smaller size for long labels (Shift, Space, PrtSc ...) and no wrapping: every key uses --label-size, so a row
+     of keys reads evenly. A theme picks a --label-size at which its widest 1-unit labels (Home, Pause, PrtSc, ScrLk, PgUp, PgDn) still fit
+     on one line with a couple of pixels to spare. */
   .key.on { background: var(--accent); border-color: #fff; color: #06121a; transform: translateY(2px); }
 
   /* ---- mouse ---- */
@@ -37,6 +43,8 @@
   svg .hit { fill: transparent; stroke: var(--key-border); stroke-width: 1.5; transition: fill .06s; }
   svg .hit.on { fill: var(--accent); stroke: #fff; }
   svg .lbl { fill: var(--key-fg); font: 600 11px "Segoe UI", sans-serif; text-anchor: middle; pointer-events: none; }
+  /* The mouse drawing is scaled 1.3x (viewBox 110 wide -> 143px), so its L/R labels divide by 1.3 to come out at the same on-screen size as the keys. */
+  #mouseSvg .lbl { font-size: calc(var(--label-size) / 1.3); }
   #motion { width: 143px; height: 221px; pointer-events: none; }
 
   #dbg { position: fixed; left: 8px; bottom: 8px; margin: 0; padding: 6px 8px; font: 12px/1.4 Consolas, monospace;
@@ -134,8 +142,11 @@ const DEFAULTS = { keyboard: { mode: 'full', keys: [], sizes: {} }, mouse: true,
                    scale: 1, opacity: 1, fill: .8, swapSide: false, controller: 'auto', theme: 'default', sens: 1, tpt: .5, tprot: 9, gyro: 'off', gsens: 1,
                    pads: 1, playerColors: true, layout: null };
 const normalize = base => ({ ...DEFAULTS, ...base, keyboard: { ...DEFAULTS.keyboard, ...(base && base.keyboard) } });
+// Allowed ranges for the numeric URL parameters: the same limits config.py clean() applies to a saved preset.
+const RANGES = { scale: [0.25, 4], opacity: [0.1, 1], fill: [0, 1], sens: [0.1, 5], tpt: [0.05, 1], tprot: [-45, 45], gsens: [0.1, 5] };
 function withOverrides(c) {
   const kb = q.get('kb');
+  // keep the preset's custom key sizes when the URL only changes which keys are shown
   if (kb === 'off' || kb === 'full') c.keyboard = { ...c.keyboard, mode: kb, keys: [] };
   else if (kb === 'compact') c.keyboard = { ...c.keyboard, mode: 'custom', keys: KB.GROUPS['WASD + common'] };
   if (q.has('numpad')) c.keyboard = { ...c.keyboard, numpad: q.get('numpad') !== '0' };
@@ -143,17 +154,24 @@ function withOverrides(c) {
   const pad = q.get('pad');
   if (pad === '0' || pad === 'off') c.pad = 'off'; else if (pad === '1' || pad === 'on') c.pad = 'on'; else if (pad === 'auto') c.pad = 'auto';
   if (q.get('theme')) c.theme = q.get('theme');
-  if (q.has('pads')) c.pads = parseInt(q.get('pads')) || 1;
-  if (q.get('controller')) c.controller = q.get('controller') === 'playstation' ? 'ps5' : q.get('controller');          // auto | steam | xbox | playstation | switch | gamecube
+  if (q.has('pads')) { const n = parseInt(q.get('pads')); if (Number.isFinite(n)) c.pads = clamp(n, 1, 4); }          // 1 to 4 controllers; ignore anything that is not a number
+  const ctl = q.get('controller') === 'playstation' ? 'ps5' : q.get('controller');          // auto | steam | xbox | playstation | switch | gamecube
+  if (ctl && (ctl === 'auto' || LAYERED[ctl])) c.controller = ctl;                          // unknown names are ignored
   if (/^[tmb][lcr]$/.test(q.get('align') || '')) c.align = q.get('align');
   const acc = q.get('accent');
   if (acc) c.accent = /^[0-9a-f]{3,8}$/i.test(acc) ? '#' + acc : acc;
-  for (const k of ['scale', 'opacity', 'fill', 'sens', 'tpt', 'tprot', 'gsens']) if (q.has(k)) c[k] = parseFloat(q.get(k));
+  for (const k in RANGES) {                                  // clamp into range; ignore anything that is not a number (e.g. ?sens=abc)
+    const v = parseFloat(q.get(k));
+    if (Number.isFinite(v)) c[k] = clamp(v, RANGES[k][0], RANGES[k][1]);
+  }
   if (['off', 'tilt', 'aim', 'both'].includes(q.get('gyro'))) c.gyro = q.get('gyro');
   return c;
 }
 
 let cfg = normalize();
+// The highlight colour as a plain string for the canvas draw loops. Reading it back from CSS every frame (getComputedStyle) forces a style
+// recalculation, so applyConfig() keeps this copy up to date instead.
+let accentColour = DEFAULTS.accent;
 let settings = { swapSide: false, opacity: 1, fill: .8, theme: 'default', accent: '#38bdf8', gyro: 'off', scope: { swapSide: true, opacity: false, fill: false, theme: true, accent: false, gyro: false } };   // shared values + which settings are shared        // hardware settings shared by every preset
 const held = {};                          // mouse buttons currently down, by event name
 let keyEls = new Map();
@@ -171,6 +189,8 @@ function applyConfig(c) {
   c = cfg = effective(c);
   applyTheme(c.theme || 'default');
   document.documentElement.style.setProperty('--accent', c.accent);
+  accentColour = c.accent || DEFAULTS.accent;
+  motionRested = false;                                      // redraw the resting mouse frame once in the (possibly new) colour
   root.style.zoom = c.scale;
   root.style.opacity = c.opacity;
   document.documentElement.style.setProperty('--fill', c.fill);
@@ -229,11 +249,20 @@ function addMotion(dx, dy) {
   if (m > LIM) { px *= LIM / m; py *= LIM / m; }
 }
 function setMotion(x, y) { px = x; py = y; }      // for demos and screenshots
+const REST = 0.01;                                          // closer to the middle than this (in drawing units) counts as at rest
+let motionRested = false;                                   // true once the resting frame (dot in the middle, no trail) has been drawn
 function drawMotion() {
+  requestAnimationFrame(drawMotion);
+  if (!cfg.mouse) return;                                   // mouse hidden: nothing to draw
   px *= 0.9; py *= 0.9;
   trail.push([px, py]); if (trail.length > 36) trail.shift();
+  // Idle skip: when the dot and every trail point are at rest, the picture is the same as last frame, so don't clear and redraw it.
+  // The resting frame is still drawn once (so the dot doesn't vanish), and any movement makes this false again straight away.
+  const atRest = Math.abs(px) < REST && Math.abs(py) < REST && trail.every(t => Math.abs(t[0]) < REST && Math.abs(t[1]) < REST);
+  if (atRest && motionRested) return;
+  motionRested = atRest;
   cx.clearRect(0, 0, 110, 170);
-  const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#38bdf8';
+  const acc = accentColour;
   cx.strokeStyle = acc; cx.lineCap = 'round';
   for (let i = 1; i < trail.length; i++) {
     cx.globalAlpha = i / trail.length * .7; cx.lineWidth = 1 + i / trail.length * 3;
@@ -241,7 +270,6 @@ function drawMotion() {
   }
   cx.globalAlpha = 1; cx.fillStyle = acc;
   cx.beginPath(); cx.arc(CX + px, CY + py, 5, 0, 6.2832); cx.fill();
-  requestAnimationFrame(drawMotion);
 }
 drawMotion();
 
@@ -388,12 +416,13 @@ const matrixAttr = m => `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`;
 // with `triggerLift` in its LAYERED row (0 = draw them exactly where the file puts them).
 const TRIGGER_LIFT = 16;
 // Artwork can come from a theme someone else made, so it is parsed and stripped to passive drawing before it joins the page: no script,
-// no embedded HTML, no event-handler attributes, and links only to parts of the same file or to embedded images.
+// no embedded HTML, no event-handler attributes, no animation elements or <style> elements (style="" attributes are kept: the bundled
+// artwork uses them), and links only to parts of the same file or to embedded images.
 function parseSvg(txt) {
   const r = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
   const bad = [];
   for (const el of [r, ...r.querySelectorAll('*')]) {
-    if (/^(script|foreignobject|iframe|object|embed|handler|listener)$/i.test(el.localName)) { bad.push(el); continue; }
+    if (/^(script|foreignobject|iframe|object|embed|handler|listener|animate|animatemotion|animatetransform|set|style)$/i.test(el.localName)) { bad.push(el); continue; }
     for (const a of [...el.attributes]) {
       const n = a.name.toLowerCase();
       if (n.startsWith('on')) el.removeAttribute(a.name);
@@ -462,6 +491,7 @@ class PadView {
     const f = mk('filter', { id: this.tintId, 'color-interpolation-filters': 'sRGB' }, globalDefs);
     this.flood = mk('feFlood', { 'flood-color': '#38bdf8' }, f); mk('feComposite', { in2: 'SourceAlpha', operator: 'in' }, f);
     this.skin = null; this.seq = 0; this.loading = Promise.resolve(); this.last = null; this.lastAuto = null;
+    this.gyroRested = false;                          // true once the resting aim frame has been drawn
     this.layer = null; this.bodyEl = null; this.fingers = [];
     this.gyro = { have: false, rate: [0, 0, 0], prev: [0, 0, 0], bias: [0, 0, 0], still: 0, pitch: 0, yaw: 0, roll: 0, ax: 0, ay: 0, last: 0, trail: [], tilted: false };
   }
@@ -476,6 +506,7 @@ class PadView {
     for (const el of [this.item, this.gitem]) el.style.setProperty('--accent', a);
     this.flood.setAttribute('flood-color', a);
     this.item.classList.toggle('hidden', !this.visible());
+    this.gyroRested = false;                          // the colour or config may have changed, so the resting frame is drawn once more
     if (this.bodyEl) this.bodyEl.setAttribute('opacity', cfg.fill);     // the body's fill follows the preset; the parts on top stay solid
     this.fingers.forEach(t => t.g.setAttribute('transform', padTransform(t)));
     this.updateGyro();
@@ -528,6 +559,10 @@ class PadView {
       g.ax = clamp((g.ax + GY.aimX * ry * dt * 0.9 * k) * keep, -1, 1);
       g.ay = clamp((g.ay + GY.aimY * rp * dt * 0.9 * k) * keep, -1, 1);
       g.trail.push([g.ax, g.ay]); if (g.trail.length > 30) g.trail.shift();
+      // Idle skip: dot and trail at rest and the resting frame already drawn means nothing would change, so leave the canvas alone.
+      const atRest = Math.abs(g.ax) < REST && Math.abs(g.ay) < REST && g.trail.every(t => Math.abs(t[0]) < REST && Math.abs(t[1]) < REST);
+      if (atRest && this.gyroRested) return;
+      this.gyroRested = atRest;
       const W = 148, H = 118, cx0 = W / 2, cy0 = H / 2, ex = W / 2 - 14, ey = H / 2 - 14;
       gcx.clearRect(0, 0, W, H);
       gcx.strokeStyle = 'rgba(255,255,255,.14)'; gcx.lineWidth = 1;
@@ -565,7 +600,12 @@ class PadView {
       if (seq !== this.seq) return;
       try {
         const url = skinUrl(want);
-        const txt = textCache[url] || (textCache[url] = await (await fetch(url)).text());
+        let txt = textCache[url];
+        if (!txt) {
+          const r = await fetch(url);
+          if (!r.ok) { console.error('could not load controller skin', want, r.status); return; }       // don't cache or use an error page
+          txt = textCache[url] = await r.text();
+        }
         if (seq !== this.seq) return;            // a newer skin was requested while this one loaded
         this.build(want, txt);
         this.layerSkin.classList.remove('hidden');
@@ -710,6 +750,9 @@ function drawFingers() {
   for (const v of views) for (const t of v.fingers) {
     t.trail.push(t.down ? [(t.x - .5) * t.spanX, (t.y - .5) * t.spanY] : null);
     if (t.trail.length > TRAIL) t.trail.shift();
+    // Idle skip: finger up and the whole trail empty. Once the dots have been cleared (t.cleared) there is nothing left to update.
+    if (!t.down && t.trail.every(pt => pt === null)) { if (t.cleared) continue; t.cleared = true; }
+    else t.cleared = false;
     t.dots.forEach((c, i) => {
       const pt = t.trail[i + t.trail.length - TRAIL] ?? null;   // oldest .. newest
       if (!pt || i === TRAIL - 1) { c.setAttribute('r', 0); return; }
@@ -776,6 +819,7 @@ function applyTheme(id) {
   themeId = id;
   themeLoading = (async () => {
     if (!themeList || !themeList.some(t => t.id === id)) await fetchThemes();       // a theme added since the page loaded
+    if (themeId !== id) return;                      // a newer applyTheme() call has taken over while we waited; don't overwrite its result
     const t = themeList.find(x => x.id === id) || themeList.find(x => x.id === 'default') || { id: 'default', assets: [], css: '' };
     themeInfo = t;
     document.body.dataset.theme = t.id;
@@ -784,6 +828,7 @@ function applyTheme(id) {
       if (!link) { link = Object.assign(document.createElement('link'), { id: 'themeCss', rel: 'stylesheet' }); document.head.appendChild(link); }
       const href = `/themes/${encodeURIComponent(t.id)}/${encPath(t.css)}?v=${buildId || 0}`;
       if (link.getAttribute('href') !== href) await new Promise(res => { link.onload = link.onerror = res; link.href = href; });
+      if (themeId !== id) return;                    // superseded while the stylesheet loaded
     } else if (link) link.remove();
     skinsChanged();
   })();
@@ -953,8 +998,47 @@ function initKeyResize() {
 }
 
 // ---------------------------------------------------------------- socket
+// The server can send ~120 controller updates a second but the page only draws 30-60 frames, so keep just the newest state and apply it
+// once per animation frame. Button presses are the exception: the bitmasks `b` and `x` of every state since the last frame are OR-ed
+// together, so a press and release inside a single frame still lights the button for that frame. The server only sends a state when it
+// changes, so after showing such a merged state the real newest state is queued again for the next frame (otherwise the button would stay
+// lit). debugPad therefore sees the merged state for that one frame. The states come as a list, one per connected controller, and the bits are
+// merged per position in it: when a controller connects or disconnects the positions shift, which can at worst merge bits across slots for one frame.
+let pendingPads = null, pendingBits = [];
+function queuePads(list) {
+  if (!Array.isArray(list)) list = [];
+  if (!pendingPads) { requestAnimationFrame(flushPads); pendingBits = []; }
+  list.forEach((p, i) => {
+    const bits = pendingBits[i] || (pendingBits[i] = { b: 0, x: 0 });
+    bits.b |= p.b || 0; bits.x |= p.x || 0;                  // every button seen down since the last frame
+  });
+  pendingPads = list;
+}
+function flushPads() {
+  const list = pendingPads, allBits = pendingBits; pendingPads = null; pendingBits = [];
+  if (!list) return;
+  let merged = false;
+  const shown = list.map((p, i) => {
+    const bits = allBits[i];
+    if (!bits || (bits.b === (p.b || 0) && bits.x === (p.x || 0))) return p;
+    merged = true;
+    return { ...p, b: bits.b, x: bits.x };                   // a quick tap: show it pressed for this frame ...
+  });
+  onPads(shown);
+  if (merged) queuePads(list);                               // ... and the real (released) state on the next one
+}
+
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    // Key and button releases sent while we were disconnected were lost, so let go of everything; anything still
+    // physically held is lit again by its next press.
+    for (const vk of [...down]) setKey(vk, 0);
+    for (const n of Object.keys(held)) setMouseButton(n, false);
+    // On a re-connect (buildId is already set) a "reload" message may have been missed too, so re-fetch the config.
+    if (buildId && !draft) refresh();
+    // The controller views are left alone on purpose: the server sends the current controller state right after connecting.
+  };
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.v) {          // build id: a new build means this page is stale (OBS keeps showing the old copy), so reload it
@@ -966,20 +1050,24 @@ function connect() {
     else if (m.m) setMouseButton(m.m[0], !!m.m[1]);
     else if (m.d) addMotion(m.d[0], m.d[1]);
     else if (m.s) { if (m.s[1]) onScroll(m.s[1]); }
-    else if (m.p) onPads(m.p);
+    else if (m.p) queuePads(m.p);
   };
   ws.onclose = () => setTimeout(connect, 1000);
 }
 
 // Without ?preset= the overlay follows the active preset (switched from the tray, Settings or a Stream Deck URL);
 // with ?preset=Name it stays pinned to that preset.
+let refreshSeq = 0;                                          // so that only the newest refresh() applies its result
 async function refresh() {
+  const seq = ++refreshSeq;
   let base;
   try {
     const data = await (await fetch('/api/presets')).json();
-    const name = q.get('preset');
+    if (seq !== refreshSeq) return;                          // a newer refresh started while this one was loading
+    const name = q.get('preset'), lower = name && name.toLowerCase();
     settings = { ...settings, ...data.settings };
-    base = data.presets.find(p => p.name === name) || data.presets.find(p => p.name === data.active) || data.presets[0];
+    // the server's /api/switch matches preset names case-insensitively, so do the same here: exact match first, then ignoring case
+    base = data.presets.find(p => p.name === name) || data.presets.find(p => p.name.toLowerCase() === lower) || data.presets.find(p => p.name === data.active) || data.presets[0];
     if (name && base && base.name !== name) console.warn(`preset "${name}" not found, using "${base.name}"`);
   } catch (e) { console.error('could not load presets', e); return; }
   applyConfig(withOverrides(normalize(base)));
