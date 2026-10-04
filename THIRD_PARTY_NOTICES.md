@@ -19,6 +19,12 @@ licence; none of them is changed by this project.
 | [PyInstaller](https://pyinstaller.org) | 6.x | GPL-2.0-or-later with a special exception | builds the program; the exception allows the built program to be distributed under any licence |
 | OpenSSL, libffi, the Microsoft Visual C++ runtime | | Apache-2.0, MIT, Microsoft redistributable terms | DLLs that come with Python |
 
+## Fonts
+
+| Font | Where it is | Status |
+|---|---|---|
+| "IO Pixel" | `overlay/themes/pixel/pixel.ttf` | **Origin and licence unverified.** The font file has no copyright string in its name table. To be confirmed by the author. |
+
 ## Checksums of the bundled libraries
 
 The two DLLs in `lib/` are the unmodified official builds. Their SHA-256 checksums are recorded here and in `lib/SHA256SUMS.txt`, and the build

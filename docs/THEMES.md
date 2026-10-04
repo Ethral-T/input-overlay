@@ -22,7 +22,7 @@ my-theme/
   theme.css         your styles (the file named by "css" in theme.json)
   *.ttf / *.woff2   optional fonts       (reference them with a relative url, see below)
   *.png / *.svg     optional images
-  pad-xbox.svg      optional controller artwork replacements (see "Replacing controller artwork")
+  xbox-controller.svg   optional controller artwork replacement, named <name>-controller.svg (see "Replacing controller artwork")
 ```
 
 Only these file types are served from a theme: `.css .json .svg .png .gif .jpg .jpeg .webp .ttf .otf .woff .woff2`.
