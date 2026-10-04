@@ -1,15 +1,28 @@
 """Input Overlay server.
 
-Captures global keyboard / mouse / XInput-controller input on Windows and
+Captures global keyboard / mouse input and controller input on Windows and
 streams it over a WebSocket to the overlay page (overlay/index.html), which is
-meant to be loaded as an OBS Browser Source.
+meant to be loaded as an OBS Browser Source. Controllers are read through SDL3,
+the GameCube adapter and Switch 2 Pro readers (both via libusb) and XInput.
 
 Messages (JSON, server -> overlay):
+  {"v": "<build id>"}           sent first on connect; overlays reload themselves if it changed
+  {"reload": 1}                 presets or settings changed; overlays re-read them
   {"k": [vk, 1|0]}              key down / up (Windows virtual-key code)
   {"m": [button, 1|0]}          mouse button: left right middle x1 x2
   {"d": [dx, dy]}               raw mouse movement since last flush
   {"s": [dx, dy]}               scroll wheel ticks
-  {"p": {...}}                  gamepad state (buttons bitmask, triggers, sticks)
+  {"p": {...}}                  gamepad state, with these fields:
+      c   1 connected / 0 not (when 0 nothing else is sent)
+      b   buttons as an XInput bitmask
+      x   extra SDL buttons (misc, paddles, touchpad click ...) as a bitmask, bit = SDL index - 15
+      r   raw joystick buttons as a bitmask (debugging)
+      t   touchpads: [[down, x 0..1, y 0..1, pressure], ...]
+      ty  SDL gamepad type number
+      nm  controller name
+      lt, rt          triggers 0..255
+      lx, ly, rx, ry  sticks -32767..32767 (y up)
+      g   [pitch, yaw, roll] in rad/s, only when the pad reports a gyroscope
 """
 import argparse
 import asyncio
@@ -379,15 +392,32 @@ def gamepad_thread(index):
         print("[pad] no controller backend available; controller disabled")
         return
     last = None
+    # A backend that throws is skipped for a while (1 s, doubling up to 30 s, back to normal after one good poll) so the
+    # others keep running at full rate. Its error message is also throttled: the first one is printed, then at most one per minute.
+    retry_at = {}              # backend -> time.monotonic() before which it is not polled
+    delay = {}                 # backend -> current back-off in seconds
+    last_print = {}            # backend -> time.monotonic() of the last printed error
+    repeats = {}               # backend -> errors seen since that print
     while True:
         state = None
         for b in backends:  # first backend that sees a pad wins
+            now = time.monotonic()
+            if now < retry_at.get(b, 0):
+                continue
             try:
                 state = b.poll()
+                delay.pop(b, None)
             except Exception as e:  # noqa: BLE001 - one misbehaving backend must not stop the controller loop
-                print(f"[pad] {b.name} error: {e!r}")
                 state = None
-                time.sleep(1)
+                delay[b] = min(30, delay.get(b, 0.5) * 2)
+                retry_at[b] = now + delay[b]
+                if now - last_print.get(b, -60) >= 60:
+                    extra = f" (repeated {repeats.get(b, 0)} times)" if repeats.get(b) else ""
+                    print(f"[pad] {b.name} error: {e!r}{extra}")
+                    last_print[b] = now
+                    repeats[b] = 0
+                else:
+                    repeats[b] = repeats.get(b, 0) + 1
             if state:
                 break
         if state is None:
