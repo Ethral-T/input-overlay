@@ -61,6 +61,10 @@ const KB = (() => {
     'WASD + common': [49, 50, 51, 52, 53, 9, 81, 87, 69, 82, 65, 83, 68, 70, 160, 90, 88, 67, 86, 162, 164, 32],
   };
 
+  // Where a long label may wrap onto a second line (characters before the break). It only wraps if a theme's font is too wide for the key
+  // at the shared label size; labels are never shrunk instead. The break is an invisible <wbr>, so the label text itself is unchanged.
+  const BREAK_AT = { PrtSc: 3, ScrLk: 3, Pause: 3, Home: 2, PgUp: 2, PgDn: 2 };
+
   // Shift/Ctrl/Alt can also arrive as their generic codes; light both sides.
   const GENERIC = { 16: [160, 161], 17: [162, 163], 18: [164, 165] };
 
@@ -85,7 +89,9 @@ const KB = (() => {
     for (const k of shown) {
       const el = document.createElement('div');
       el.className = 'key' + (editor && visible && !visible.has(k.vk) ? ' off' : '');
-      el.textContent = k.label;
+      const cut = BREAK_AT[k.label];
+      if (cut) el.append(k.label.slice(0, cut), document.createElement('wbr'), k.label.slice(cut));
+      else el.textContent = k.label;
       el.dataset.vk = k.vk;
       el.dataset.len = k.label.length;      // label length and key width (in units) let themes size long labels
       el.dataset.w = k.w;

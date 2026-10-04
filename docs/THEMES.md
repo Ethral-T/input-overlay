@@ -45,13 +45,15 @@ only decide how it looks.
 | `--fill` | the "Fill opacity" slider, 0 to 1. Multiply your backgrounds by it: `rgba(20, 24, 33, var(--fill))` |
 | `--key-bg`, `--key-border`, `--key-fg` | default key background / border / text colours |
 | `--unit`, `--gap` | key size and spacing (44px, 4px) |
+| `--label-size` | the one font size for every key label and the mouse's L/R labels, `14px` by default. Long labels are not shrunk; if your font is too wide for a label (PrtSc, Home, PgUp ...) on its key, that label wraps onto two lines at the same size |
+| `--label-outline` | optional outline around key labels so they stay readable over bright gameplay. A `text-shadow` value, `none` by default. Example: `0 0 2px #000, 0 0 2px #000` |
 
 ### Keyboard
 
 | Selector | What it is |
 |---|---|
 | `.key` | every key. `.key.on` is a key that is down |
-| `.key[data-len="5"]` | label length (use it to shrink long labels). `data-w` is the key width in key units (1, 1.25, 2.25, 6.25 ...) |
+| `.key[data-len="5"]` | label length. `data-w` is the key width in key units (1, 1.25, 2.25, 6.25 ...). Prefer one `--label-size` for every key over shrinking long labels, so a row of keys reads evenly |
 | `.key[data-vk="87"]` | one specific key, by Windows virtual-key code (87 = W) |
 
 ### Mouse (`#mouseSvg`)
