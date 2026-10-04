@@ -636,7 +636,8 @@ async def stuck_key_sweeper():
         await asyncio.sleep(0.25)
         up_now = set()
         for vk in list(_down_keys):                       # iterate a copy: the keyboard hook thread edits the set
-            if not user32.GetAsyncKeyState(vk) & 0x8000:  # high bit set = down right now
+            real = 13 if vk == 269 else vk                    # 269 = numpad Enter's own code, not a real VK; VK_RETURN covers both Enters
+            if not user32.GetAsyncKeyState(real) & 0x8000:    # high bit set = down right now
                 if vk in looked_up:                       # up on two sweeps in a row: the key-up really was missed
                     _down_keys.discard(vk)
                     hub.emit({"k": [vk, 0]})

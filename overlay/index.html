@@ -869,6 +869,7 @@ function connect() {
     for (const n of Object.keys(held)) setMouseButton(n, false);
     // On a re-connect (buildId is already set) a "reload" message may have been missed too, so re-fetch the config.
     if (buildId && !draft) refresh();
+    // The controller views are left alone on purpose: the server sends the current controller state right after connecting.
   };
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
