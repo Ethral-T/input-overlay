@@ -45,7 +45,7 @@ only decide how it looks.
 | `--fill` | the "Fill opacity" slider, 0 to 1. Multiply your backgrounds by it: `rgba(20, 24, 33, var(--fill))` |
 | `--key-bg`, `--key-border`, `--key-fg` | default key background / border / text colours |
 | `--unit`, `--gap` | key size and spacing (44px, 4px) |
-| `--label-size` | the one font size for every key label and the mouse's L/R labels, `14px` by default. Long labels are not shrunk; if your font is too wide for a label (PrtSc, Home, PgUp ...) on its key, that label wraps onto two lines at the same size |
+| `--label-size` | the one font size for every key label and the mouse's L/R labels, `14px` by default. Long labels are neither shrunk nor wrapped, so pick a size at which the widest 1-unit labels (Home, Pause, PrtSc, ScrLk, PgUp, PgDn) fit on one line with a little room to spare |
 | `--label-outline` | optional outline around key labels so they stay readable over bright gameplay. A `text-shadow` value, `none` by default. Example: `0 0 2px #000, 0 0 2px #000` |
 
 ### Keyboard
