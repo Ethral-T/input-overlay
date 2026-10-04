@@ -22,7 +22,7 @@ my-theme/
   theme.css         your styles (the file named by "css" in theme.json)
   *.ttf / *.woff2   optional fonts       (reference them with a relative url, see below)
   *.png / *.svg     optional images
-  xbox-controller.svg   optional controller artwork replacements (see "Replacing controller artwork")
+  xbox-controller.svg   optional controller artwork replacements, named <name>-controller.svg (see "Replacing controller artwork")
 ```
 
 Only these file types are served from a theme: `.css .json .svg .png .gif .jpg .jpeg .webp .ttf .otf .woff .woff2`.
@@ -45,13 +45,15 @@ only decide how it looks.
 | `--fill` | the "Fill opacity" slider, 0 to 1. Multiply your backgrounds by it: `rgba(20, 24, 33, var(--fill))` |
 | `--key-bg`, `--key-border`, `--key-fg` | default key background / border / text colours |
 | `--unit`, `--gap` | key size and spacing (44px, 4px) |
+| `--label-size` | the one font size for every key label and the mouse's L/R labels, `14px` by default. Long labels are neither shrunk nor wrapped, so pick a size at which the widest 1-unit labels (Home, Pause, PrtSc, ScrLk, PgUp, PgDn) fit on one line with a little room to spare |
+| `--label-outline` | optional outline around key labels so they stay readable over bright gameplay. A `text-shadow` value, `none` by default. Example: `0 0 2px #000, 0 0 2px #000` |
 
 ### Keyboard
 
 | Selector | What it is |
 |---|---|
 | `.key` | every key. `.key.on` is a key that is down |
-| `.key[data-len="5"]` | label length (use it to shrink long labels). `data-w` is the key width in key units (1, 1.25, 2.25, 6.25 ...) |
+| `.key[data-len="5"]` | label length. `data-w` is the key width in key units (1, 1.25, 2.25, 6.25 ...). Prefer one `--label-size` for every key over shrinking long labels, so a row of keys reads evenly |
 | `.key[data-vk="87"]` | one specific key, by Windows virtual-key code (87 = W). Numpad keys use 96-111 and 144; the numpad's Enter is 269 |
 
 ### Mouse (`#mouseSvg`)

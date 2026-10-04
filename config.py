@@ -26,7 +26,11 @@ VERSION = 2                       # config.json format; see Config._load for mig
 
 CONTROLLER_STYLES = ("auto", "steam", "xbox", "ps4", "ps5", "switch", "switch2", "gamecube")
 
+DEFAULT_ACCENT = "#38bdf8"
+ACCENT_RE = re.compile(r"#[0-9a-fA-F]{6}")
+
 # vk codes for the starter "WASD" preset: 1-5, Tab QWER, ASDF, Shift ZXCV, Ctrl Alt Space
+# (keep in sync with KB.GROUPS['WASD + common'] in overlay/keyboard.js: same keys, different language, so they can't share one list)
 _WASD = [49, 50, 51, 52, 53, 9, 81, 87, 69, 82, 65, 83, 68, 70, 160, 90, 88, 67, 86, 162, 164, 32]
 
 SEED = [
@@ -54,12 +58,24 @@ def clean_layout(v):
     return out
 
 
+def _num(src, key, default, lo, hi):
+    """src[key] as a float clamped to lo..hi; the default if it is missing or not a number (booleans don't count)."""
+    v = src.get(key, default)
+    return min(hi, max(lo, float(v))) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+
+
+def _accent(v):
+    """v if it is a "#rrggbb" colour string, otherwise the default accent."""
+    return v if isinstance(v, str) and ACCENT_RE.fullmatch(v) else DEFAULT_ACCENT
+
+
 def clean(p):
     """Coerce arbitrary JSON into a valid preset (never trust the file or the API caller)."""
     p = p if isinstance(p, dict) else {}
     kb = p.get("keyboard") if isinstance(p.get("keyboard"), dict) else {}
     mode = kb.get("mode") if kb.get("mode") in ("full", "custom", "off") else "full"
-    keys = sorted({int(k) for k in kb.get("keys", []) if isinstance(k, int) and 0 <= k <= 255})
+    raw_keys = kb.get("keys")
+    keys = sorted({int(k) for k in raw_keys if isinstance(k, int) and 0 <= k <= 255}) if isinstance(raw_keys, list) else []
     # per-key width overrides, {vk: units}: clamped to what the overlay lets you drag to, snapped to quarter units
     sizes = {}
     for k, v in (kb.get("sizes") if isinstance(kb.get("sizes"), dict) else {}).items():
@@ -70,29 +86,31 @@ def clean(p):
         if 0 <= vk <= 255 and isinstance(v, (int, float)) and not isinstance(v, bool) and len(sizes) < 120:
             sizes[str(vk)] = round(min(12.0, max(0.5, float(v))) * 4) / 4
 
-    def num(key, default, lo, hi):
-        v = p.get(key, default)
-        return min(hi, max(lo, float(v))) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
-
-    accent = p.get("accent") if isinstance(p.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", p["accent"]) else "#38bdf8"
+    # "playstation" is the old name for "ps5". Only a string can be a style: a list or dict must never reach the dict lookup (unhashable).
+    controller = p.get("controller")
+    if isinstance(controller, str):
+        controller = {"playstation": "ps5"}.get(controller, controller)
+    if not (isinstance(controller, str) and controller in CONTROLLER_STYLES):
+        controller = "auto"
+    # (the "pad" / "align" / "gyro" checks below are tuple "in" tests, which compare with == and never raise for wrong-typed values)
     return {
         "keyboard": {"mode": mode, "keys": keys, "sizes": sizes, "numpad": bool(kb.get("numpad", False))},
         "mouse": bool(p.get("mouse", True)),
         "swapSide": bool(p.get("swapSide", False)),
-        "controller": {"playstation": "ps5"}.get(p.get("controller"), p.get("controller")) if {"playstation": "ps5"}.get(p.get("controller"), p.get("controller")) in CONTROLLER_STYLES else "auto",   # "playstation" is the old name
+        "controller": controller,
         "theme": clean_theme(p.get("theme")),
         "pad": p.get("pad") if p.get("pad") in ("auto", "on", "off") else "auto",
         "align": p.get("align") if p.get("align") in ('tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br') else "mc",
-        "accent": accent,
-        "scale": num("scale", 1.0, 0.25, 4.0),
-        "sens": num("sens", 1.0, 0.1, 5.0),
-        "tpt": num("tpt", 0.5, 0.05, 1.0),
-        "opacity": num("opacity", 1.0, 0.1, 1.0),
-        "fill": num("fill", 0.8, 0.0, 1.0),
-        "tprot": num("tprot", 9.0, -45.0, 45.0),
+        "accent": _accent(p.get("accent")),
+        "scale": _num(p, "scale", 1.0, 0.25, 4.0),
+        "sens": _num(p, "sens", 1.0, 0.1, 5.0),
+        "tpt": _num(p, "tpt", 0.5, 0.05, 1.0),
+        "opacity": _num(p, "opacity", 1.0, 0.1, 1.0),
+        "fill": _num(p, "fill", 0.8, 0.0, 1.0),
+        "tprot": _num(p, "tprot", 9.0, -45.0, 45.0),
         "gyro": p.get("gyro") if p.get("gyro") in ("off", "tilt", "aim", "both") else "off",
-        "gsens": num("gsens", 1.0, 0.1, 5.0),
-        "pads": int(num("pads", 1, 1, 4)),
+        "gsens": _num(p, "gsens", 1.0, 0.1, 5.0),
+        "pads": int(_num(p, "pads", 1, 1, 4)),
         "layout": clean_layout(p.get("layout")),
         "playerColors": bool(p.get("playerColors", True)),
     }
@@ -113,10 +131,6 @@ def clean_settings(s):
     """
     s = s if isinstance(s, dict) else {}
 
-    def num(key, default, lo, hi):
-        v = s.get(key, default)
-        return min(hi, max(lo, float(v))) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
-
     scope_in = s.get("scope") if isinstance(s.get("scope"), dict) else {}
     legacy_share = bool(s.get("shareLook", False))          # older versions had one checkbox for both opacity sliders
     scope = {
@@ -129,10 +143,10 @@ def clean_settings(s):
     }
     return {
         "swapSide": bool(s.get("swapSide", False)),
-        "opacity": num("opacity", 1.0, 0.1, 1.0),
-        "fill": num("fill", 0.8, 0.0, 1.0),
+        "opacity": _num(s, "opacity", 1.0, 0.1, 1.0),
+        "fill": _num(s, "fill", 0.8, 0.0, 1.0),
         "theme": clean_theme(s.get("theme")),
-        "accent": s.get("accent") if isinstance(s.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["accent"]) else "#38bdf8",
+        "accent": _accent(s.get("accent")),
         "gyro": s.get("gyro") if s.get("gyro") in ("off", "tilt", "aim", "both") else "off",
         "updateCheck": bool(s.get("updateCheck", False)),       # opt-in: look on GitHub for a newer version about once a day (a notice only)
         "scope": scope,
@@ -158,15 +172,20 @@ class Config:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             version = data.get("version", 1)
+            if not isinstance(version, int):     # a wrong-typed version would break the comparisons below
+                version = 1
             wanted = data.get("active")
             self.settings = clean_settings(data.get("settings"))
             for item in data.get("presets", []):
-                name = clean_name(item.get("name", ""))
-                if name:
-                    self.presets[name] = clean(item)
+                try:                     # one bad preset is skipped; the rest of the file is still used
+                    name = clean_name(item.get("name", ""))
+                    if name:
+                        self.presets[name] = clean(item)
+                except (TypeError, ValueError, AttributeError) as e:
+                    print(f"[config] skipped preset {str(item)[:60]!r}: {e!r}")
         except FileNotFoundError:
             pass
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, TypeError):
             try:                         # unreadable: keep a copy instead of silently overwriting the user's presets with the starter ones
                 os.replace(self.path, self.path.with_suffix(".bad"))
             except OSError:
@@ -175,7 +194,7 @@ class Config:
         if seeded:
             for item in SEED:
                 self.presets[item["name"]] = clean(item)
-        self.active = wanted if wanted in self.presets else next(iter(self.presets))
+        self.active = wanted if isinstance(wanted, str) and wanted in self.presets else next(iter(self.presets))
         migrated = version < 2 and self._centre_old_default()
         if seeded or migrated or version != VERSION:
             self._save()
@@ -261,11 +280,14 @@ class Config:
 
 
 _shared = None
+_shared_lock = threading.Lock()
 
 
 def shared():
     """The one Config used by the server, the tray menu and the API, so they always agree."""
     global _shared
-    if _shared is None:
-        _shared = Config()
+    if _shared is None:                  # fast path: already created
+        with _shared_lock:               # the tray and the server thread can get here at the same moment
+            if _shared is None:          # check again inside the lock so only one of them creates it
+                _shared = Config()
     return _shared

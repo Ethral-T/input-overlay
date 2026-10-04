@@ -25,9 +25,10 @@ const KB = (() => {
   // The numeric keypad. Token: label:vk:width:height (height in rows). The first row is an empty spacer so it lines up with the number row.
   // Numpad Enter has the same virtual-key code as the main Enter (the program tells them apart by Windows' "extended key" flag and reports
   // it as 269), and the digits only count while NumLock is on (with it off Windows reports Home, End, the arrows and so on instead).
+  // The Num Lock key is labelled "Num" because "NumLk" does not fit a 1-unit key at the shared label size.
   const NUMPAD = [
     "_:0:4",
-    "NumLk:144 /:111 *:106 -:109",
+    "Num:144 /:111 *:106 -:109",
     "7:103 8:104 9:105 +:107:1:2",
     "4:100 5:101 6:102",
     "1:97 2:98 3:99 Enter:269:1:2",
@@ -74,6 +75,7 @@ const KB = (() => {
     'Numpad': NUMPAD_VKS,
     'Modifiers': [160, 161, 162, 163, 164, 165, 91, 92, 20, 9],
     'WASD': [87, 65, 83, 68],
+    // keep in sync with _WASD in config.py (the starter "WASD + Mouse" preset): same keys, different language, so they can't share one list
     'WASD + common': [49, 50, 51, 52, 53, 9, 81, 87, 69, 82, 65, 83, 68, 70, 160, 90, 88, 67, 86, 162, 164, 32],
   };
 

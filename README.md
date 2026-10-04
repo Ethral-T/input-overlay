@@ -150,6 +150,7 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 - **A mouse side button is the wrong one:** tick **Mouse Button Invert** in Settings.
 - **Keys don't show in a game:** games running as administrator can block input hooks from a normal program. Run Input Overlay as administrator too.
 - **The controller isn't detected:** add `?debug=1` to the URL to see what the program detects and which inputs it receives.
+- **The overlay is blank in OBS after starting the PC:** the overlay page is served by the Input Overlay program itself, so if OBS starts before it (for example when both start with Windows) the Browser Source loads nothing and does not retry on its own. Start Input Overlay first, or tick the Browser Source option **Refresh browser when scene becomes active**, or right-click the source, Properties, **Refresh cache of current page**.
 - **Numpad digits don't light:** they only report while NumLock is on. Numpad Enter lights its own key, separate from the main Enter.
 
 ## Updates
@@ -205,6 +206,12 @@ Release tags are `v` plus the number in `version.py`; the build refuses a tag th
 
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).
+
+**Command-line options.** `InputOverlay.exe` takes the same options as `server.py`: `--port N` (use a different port, for example if
+something else already uses 8765), `--host` (default `127.0.0.1`) and `--pad N`. If you change the port, use it in the OBS Browser Source
+URL and in your Stream Deck URLs too (for example `http://127.0.0.1:8800/`).
+
+**Tests.** `pip install -r requirements-test.txt`, then `python -m pytest tests`.
 
 **Controller artwork** is layered SVG: one named group per part, drawn dark and inverted by the overlay, so a new controller is a matter
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in
