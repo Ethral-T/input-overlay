@@ -10,6 +10,7 @@ Starts the capture/web server in a background thread and shows a system-tray ico
 """
 import argparse
 import asyncio
+import contextlib
 import os
 import socket
 import subprocess
@@ -119,11 +120,17 @@ def set_autostart(on):
 # ---- main ----------------------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description="Input Overlay")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--pad", type=int, default=None, help="controller index when several are connected (default: first)")
+    server.add_network_args(ap)
     args = ap.parse_args()
-    base = f"http://{args.host if args.host not in ('0.0.0.0', '::') else '127.0.0.1'}:{args.port}"
+    problem = server.lan_setup(args)
+    if problem:                                   # a windowed program has no console: say it where it can be seen
+        print(problem)
+        with contextlib.suppress(Exception):
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, problem, "Input Overlay", 0x10)
+        return
+    scheme = "https" if server.LAN["ssl"] else "http"
+    base = f"{scheme}://{args.host if args.host not in ('0.0.0.0', '::') else '127.0.0.1'}:{args.port}"
 
     first_run = not config.CONFIG_PATH.exists()
 

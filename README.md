@@ -162,10 +162,41 @@ a link to the release page and the tray menu gets an "Update available" item. No
 the old folder. The request carries no information about you or your computer beyond the program's name and version, which are in the request itself.
 **Check now** (Settings, About) asks once, only when you press it, whether or not the automatic check is on.
 
+## Two-PC streaming (loading the overlay from another PC)
+
+By default the overlay answers **only the PC it runs on**. If your game PC and your streaming PC are separate, the streaming PC's OBS can load the
+overlay from the game PC. The program refuses to listen on the network unless you say exactly which PC may connect, and it protects the connection
+in layers:
+
+1. **One named PC.** Start the program with `--host 0.0.0.0 --allow-lan 192.168.1.50` (use the streaming PC's address; you can name more than one,
+   or a small network such as `192.168.1.0/24`). Anything else, including your neighbours and other devices in your home, is refused, even if they
+   know the port and the secret. A whole network such as `10.0.0.0/8` is not accepted: the widest allowed is a `/24`.
+2. **A secret link.** The first time, the program makes a long random secret and saves it in `%APPDATA%\InputOverlay\lan-token.txt` (delete the file
+   for a new one). Settings then shows a "Another PC (LAN access)" card with the link to put in the streaming PC's OBS Browser Source:
+   `http://192.168.0.10:8765/?token=…`. The first load leaves a cookie, so everything the page does afterwards is covered too. Treat the link like a
+   password. This PC itself never needs the secret.
+3. **Guessing doesn't work.** An address that sends ten wrong secrets in a minute is shut out for five minutes.
+
+For the shortcut that starts the program, add the options after the exe, for example `"C:\...\InputOverlay.exe" --host 0.0.0.0 --allow-lan 192.168.1.50`.
+Windows Firewall will ask whether to allow the program: allow it on **Private** networks only.
+
+**What this does not do: it does not encrypt.** The overlay is plain `http`, so on a network where other people can capture traffic (an apartment
+building, a dorm, shared or public Wi-Fi, a hotel), someone could read the keystrokes on the wire even though they cannot connect. To be sure nobody
+can, use one of these:
+
+- **A direct cable between the two PCs** (a network of just those two). Give them fixed addresses, such as 10.10.10.1 and 10.10.10.2, and use
+  `--host 10.10.10.1 --allow-lan 10.10.10.2`. Nothing else is on that wire.
+- **A VPN between the two PCs**, such as [Tailscale](https://tailscale.com) (free). Use the game PC's VPN address for `--host` and the streaming PC's
+  for `--allow-lan`; the VPN encrypts everything and nobody else on your building's network can see it.
+- **https:** give the program a certificate with `--tls-cert cert.pem --tls-key key.pem`. OBS only trusts certificates that Windows trusts, so the
+  streaming PC has to trust the certificate (for example one you made with your own certificate authority, installed there).
+
+Do not use `--host 0.0.0.0` on a shared network without one of these.
+
 ## Security and privacy
 
 The program listens on `127.0.0.1` only, so nothing outside your PC can connect, and it refuses requests from other websites, because
-any web page could otherwise read your keystrokes from a local server. Don't start it with `--host 0.0.0.0` unless you mean to.
+any web page could otherwise read your keystrokes from a local server. It won't listen on the network at all unless you start it with `--allow-lan` (see *Two-PC streaming* above).
 
 There is no password: it blocks websites, not other programs. Any other program running on your PC, and any other Windows account that is logged in at
 the same time (fast user switching, remote desktop), can connect to the same local address and read what the overlay shows. That is the same reach as
@@ -209,14 +240,14 @@ The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x
 
 Release tags are `v` plus the number in `version.py`; the build refuses a tag that doesn't match, so change `version.py` before tagging.
 
-To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
-`--pad N` (which controller to use when several are connected).
+To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, `--pad N` (which controller to use when several are
+connected), and the LAN options described under *Two-PC streaming*.
 
 **Command-line options.** `InputOverlay.exe` takes the same options as `server.py`: `--port N` (use a different port, for example if
-something else already uses 8765), `--host` (default `127.0.0.1`) and `--pad N`. If you change the port, use it in the OBS Browser Source
+something else already uses 8765), `--host` (default `127.0.0.1`), `--pad N`, and for two-PC streaming `--allow-lan ADDRESS` plus optionally `--tls-cert` and `--tls-key`. If you change the port, use it in the OBS Browser Source
 URL and in your Stream Deck URLs too (for example `http://127.0.0.1:8800/`).
 
-**Tests.** `pip install -r requirements-test.txt`, then `python -m pytest tests`.
+**Tests.** `pip install -r requirements-test.txt`, then `python -m pytest tests`. The things that need a real keyboard, controller, OBS or a second PC are listed in [docs/TESTING.md](docs/TESTING.md).
 
 **Controller artwork** is layered SVG: one named group per part, drawn dark and inverted by the overlay, so a new controller is a matter
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in
