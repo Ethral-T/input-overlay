@@ -11,7 +11,7 @@ def make_app(loopback_only=True):
         return web.Response(text="ok")
 
     app = web.Application(middlewares=[server.guard])
-    app["loopback_only"] = loopback_only
+    app[server.LOOPBACK_ONLY] = loopback_only
     app.router.add_get("/api/x", ok)
     app.router.add_get("/ws-like", ok)
     return app

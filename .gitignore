@@ -24,5 +24,11 @@ run.bat
 promo/
 screenshots/
 
+# local audit and review reports: they can describe problems that aren't fixed yet, so they never go in the public repository
+reports/
+
+# test runs
+.pytest_cache/
+
 # editor / tool state
 .claude/

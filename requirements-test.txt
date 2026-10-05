@@ -1,4 +1,4 @@
 # Test requirements (only needed to run the tests, not to build or run the program).
 # requirements-test.lock pins these and their dependencies with hashes, for `pip install --require-hashes` in the build workflow;
 # see the comment at the top of that file for how to update it.
-pytest==8.4.2
+pytest==9.0.3

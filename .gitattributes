@@ -1,0 +1,9 @@
+# Line endings: text files are stored with LF and checked out the same way (Windows batch files keep CRLF); binary files are left alone.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.dll binary
+*.png binary
+*.ico binary
+*.ttf binary
+*.pdf binary
+*.zip binary

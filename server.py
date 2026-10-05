@@ -27,6 +27,7 @@ Messages (JSON, server -> overlay):
 import argparse
 import asyncio
 import collections
+import contextlib
 import ctypes
 import json
 import os
@@ -64,7 +65,7 @@ class Hub:
     def __init__(self):
         self.loop = None
         self.queue = None
-        self.clients = set()
+        self.clients = {}                 # websocket -> the queue of messages waiting to go to it
         self.pad_state = None
         self._dx = self._dy = 0
         self._lock = threading.Lock()
@@ -252,7 +253,7 @@ class _XSTATE(ctypes.Structure):
 class SdlBackend:
     name = "SDL3"
     INIT_GAMEPAD, INIT_EVENTS = 0x2000, 0x4000
-    SENSOR_ACCEL, SENSOR_GYRO = 1, 2
+    SENSOR_GYRO = 2
     # SDL_GamepadButton -> XInput bitmask
     BUTTONS = {0: 0x1000, 1: 0x2000, 2: 0x4000, 3: 0x8000, 4: 0x20, 5: 0x400, 6: 0x10, 7: 0x40, 8: 0x80,
                9: 0x100, 10: 0x200, 11: 0x1, 12: 0x2, 13: 0x4, 14: 0x8}
@@ -503,6 +504,9 @@ def gamepad_thread(index):
 # Web server
 # --------------------------------------------------------------------------
 LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
+LOOPBACK_ONLY = web.AppKey("loopback_only", bool)          # keys of the web application's shared state
+CONFIG = web.AppKey("config", config.Config)
+THEMES = web.AppKey("themes", themes.Themes)
 
 
 @web.middleware
@@ -516,7 +520,7 @@ async def guard(request, handler):
     origin = request.headers.get("Origin")
     if origin and urlparse(origin).netloc != host_header:
         raise web.HTTPForbidden(text="cross-origin request refused")
-    if request.app["loopback_only"] and host_header.rsplit(":", 1)[0] not in LOOPBACK:
+    if request.app[LOOPBACK_ONLY] and host_header.rsplit(":", 1)[0] not in LOOPBACK:
         raise web.HTTPForbidden(text="unexpected Host header")
     # Switching presets is a plain GET, so a web page could trigger it with an <img>. Browsers label such requests;
     # Stream Deck / curl / OBS don't send this header at all, so they are unaffected.
@@ -526,19 +530,52 @@ async def guard(request, handler):
     return await handler(request)
 
 
+@web.middleware
+async def security_headers(request, handler):
+    """Every response says "don't guess the file type" (the pages and theme files add their own, stricter headers on top)."""
+    try:
+        resp = await handler(request)
+    except web.HTTPException as e:
+        e.headers.setdefault("X-Content-Type-Options", "nosniff")
+        raise
+    if not resp.prepared:
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    return resp
+
+
+CLIENT_QUEUE = 2000               # messages a client may have waiting before it counts as stalled (a few seconds of a busy controller)
+
+
+async def client_sender(ws, queue):
+    """Sends one client's messages, in order. It is a task of its own, so a client that stops reading (a frozen OBS source, a suspended tab) only
+    holds up itself: after 5 seconds without being able to send, it is dropped, and the overlay reconnects and picks up from the current state."""
+    try:
+        while True:
+            await asyncio.wait_for(ws.send_str(await queue.get()), 5)
+    except Exception:  # noqa: BLE001 - closed, reset or too slow: drop this client
+        pass
+    finally:
+        hub.clients.pop(ws, None)
+        with contextlib.suppress(Exception):
+            await ws.close()
+
+
 async def ws_handler(request):
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
     await ws.send_str(json.dumps({"v": BUILD_ID}))
-    hub.clients.add(ws)
+    queue = asyncio.Queue(maxsize=CLIENT_QUEUE)
+    hub.clients[ws] = queue
+    sender = asyncio.create_task(client_sender(ws, queue))
     if hub.pad_state is not None:
-        await ws.send_str(json.dumps({"p": hub.pad_state}, separators=(",", ":")))
+        queue.put_nowait(json.dumps({"p": hub.pad_state}, separators=(",", ":")))
     try:
         async for m in ws:
             if m.type == WSMsgType.ERROR:
                 break
     finally:
-        hub.clients.discard(ws)
+        hub.clients.pop(ws, None)
+        sender.cancel()
     return ws
 
 
@@ -575,7 +612,7 @@ CONTENT_TYPES = {".css": "text/css", ".json": "application/json", ".svg": "image
 
 
 async def theme_file(request):
-    p = request.app["themes"].resolve(request.match_info["id"], request.match_info["path"])
+    p = request.app[THEMES].resolve(request.match_info["id"], request.match_info["path"])
     if p is None:
         raise web.HTTPNotFound()
     resp = web.FileResponse(p, headers={"Cache-Control": "no-cache", "Content-Security-Policy": THEME_FILE_CSP,
@@ -585,12 +622,12 @@ async def theme_file(request):
 
 
 async def api_themes(request):
-    t = request.app["themes"]
+    t = request.app[THEMES]
     return web.json_response({"themes": t.list(), "dir": str(t.user)})
 
 
 async def api_open_themes(request):
-    folder = request.app["themes"].ensure_user_dir()
+    folder = request.app[THEMES].ensure_user_dir()
     os.startfile(str(folder))            # opens the folder in Explorer (Windows)
     return web.json_response({"ok": True, "dir": str(folder)})
 
@@ -652,13 +689,13 @@ async def api_update_check(request):
 
 
 async def api_list(request):
-    cfg = request.app["config"]
+    cfg = request.app[CONFIG]
     return web.json_response({"active": cfg.active, "settings": cfg.settings, "presets": cfg.as_list()})
 
 
 async def api_put_settings(request):
     try:
-        saved = request.app["config"].put_settings(await request.json())
+        saved = request.app[CONFIG].put_settings(await request.json())
     except (ValueError, TypeError) as e:
         raise web.HTTPBadRequest(text=str(e))
     hub.emit({"reload": 1})
@@ -677,7 +714,7 @@ def set_active(ref=None, step=0):
 async def api_switch(request):
     ref = request.match_info.get("name") or request.query.get("preset")
     if not ref:
-        return web.json_response({"active": request.app["config"].active})   # /api/switch with no name = just report
+        return web.json_response({"active": request.app[CONFIG].active})   # /api/switch with no name = just report
     try:
         return web.json_response({"active": set_active(ref)})
     except KeyError:
@@ -714,7 +751,7 @@ async def api_gyro(request):
     """/api/gyro (report), /api/gyro/on|off|toggle (both displays), /api/gyro/tilt[/on|off|toggle], /api/gyro/aim[/on|off|toggle]"""
     kind, action = request.match_info.get("kind"), request.match_info.get("action")
     if not kind:
-        cfg = request.app["config"]
+        cfg = request.app[CONFIG]
         mode, tilt, aim = gyro_state(cfg)
         return web.json_response({"applies_to": "all presets" if cfg.settings["scope"].get("gyro") else "each preset on its own",
                                   "gyro": mode, "tilt": tilt, "aim": aim})
@@ -734,7 +771,7 @@ async def api_prev(request):
 
 
 async def api_put(request):
-    cfg = request.app["config"]
+    cfg = request.app[CONFIG]
     name = request.match_info["name"]
     try:
         saved = cfg.put(name, await request.json(), rename_from=request.query.get("from"))
@@ -746,7 +783,7 @@ async def api_put(request):
 
 async def api_delete(request):
     try:
-        request.app["config"].delete(request.match_info["name"])
+        request.app[CONFIG].delete(request.match_info["name"])
     except KeyError:
         raise web.HTTPNotFound()
     except ValueError as e:
@@ -758,11 +795,12 @@ async def api_delete(request):
 async def broadcaster():
     while True:
         msg = await hub.queue.get()
-        for ws in list(hub.clients):
+        for ws, queue in list(hub.clients.items()):
             try:
-                await ws.send_str(msg)
-            except Exception:  # noqa: BLE001 - a broken client must never stop the stream for everyone else
-                hub.clients.discard(ws)
+                queue.put_nowait(msg)
+            except asyncio.QueueFull:               # this client has stopped reading: let it go; the others carry on
+                hub.clients.pop(ws, None)
+                asyncio.create_task(ws.close())
 
 
 async def motion_flusher():
@@ -804,16 +842,22 @@ async def main(args):
     hub.loop = asyncio.get_running_loop()
     hub.queue = asyncio.Queue()
 
+    def quiet_resets(loop, context):
+        """A browser or OBS dropping its connection makes Windows' asyncio log a ConnectionResetError traceback every time: nothing to act on."""
+        if not isinstance(context.get("exception"), ConnectionResetError):
+            loop.default_exception_handler(context)
+    hub.loop.set_exception_handler(quiet_resets)
+
     keyboard.Listener(on_press=on_press, on_release=on_release, win32_event_filter=kb_filter).start()
     mouse.Listener(on_click=on_click, on_scroll=on_scroll).start()
     threading.Thread(target=raw_mouse_thread, daemon=True).start()
     threading.Thread(target=gamepad_thread, args=(args.pad,), daemon=True).start()
 
-    app = web.Application(middlewares=[guard])
-    app["config"] = config.shared()
-    app["themes"] = themes.Themes(ROOT / "themes")
-    app["themes"].ensure_user_dir()          # so the themes folder (and its README) exists for people to drop themes into
-    app["loopback_only"] = args.host in LOOPBACK
+    app = web.Application(middlewares=[security_headers, guard])
+    app[CONFIG] = config.shared()
+    app[THEMES] = themes.Themes(ROOT / "themes")
+    app[THEMES].ensure_user_dir()          # so the themes folder (and its README) exists for people to drop themes into
+    app[LOOPBACK_ONLY] = args.host in LOOPBACK
     app.add_routes([web.get("/", static_page("index.html")), web.get("/settings", static_page("settings.html")),
                     web.get("/index.html", static_page("index.html")), web.get("/settings.html", static_page("settings.html")),
                     web.get("/ws", ws_handler), web.get("/api/presets", api_list), web.put("/api/settings", api_put_settings),
@@ -831,7 +875,7 @@ async def main(args):
     await web.TCPSite(runner, args.host, args.port).start()
 
     print(f"Input Overlay running.\n  Settings: http://{args.host}:{args.port}/settings  (copy each preset's OBS URL from there)")
-    if not app["loopback_only"]:
+    if not app[LOOPBACK_ONLY]:
         print("WARNING: listening on a non-loopback address - anyone who can reach it can read your keystrokes.")
     print("Press Ctrl+C to stop.")
     await asyncio.gather(broadcaster(), motion_flusher(), update_checker(), stuck_key_sweeper())
