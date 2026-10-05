@@ -18,9 +18,10 @@
   }
   html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; display: flex; }          /* alignment inside the Browser Source */
-  #root { display: flex; align-items: flex-end; gap: 28px; padding: 8px; width: max-content; flex: none; }
+  #scaleBox { position: relative; flex: none; }                  /* exactly the size of the scaled overlay, so #stage places it correctly */
+  #root { display: flex; align-items: flex-end; gap: 28px; padding: 8px; width: max-content; flex: none; position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .hidden { display: none !important; }
-  #root.free { display: block; position: relative; padding: 0; }                /* Free layout: every piece is placed by the preset */
+  #root.free { display: block; padding: 0; }                /* Free layout: every piece is placed by the preset */
   #root.free > [data-item] { position: absolute; }
 
   /* ---- keyboard ---- */
@@ -131,8 +132,11 @@
 <script>
 const q = new URLSearchParams(location.search);
 const root = document.getElementById('root');
+const scaleBox = Object.assign(document.createElement('div'), { id: 'scaleBox' });          // see fitStage()
+root.parentNode.insertBefore(scaleBox, root); scaleBox.appendChild(root);
 const show = (id, on) => document.getElementById(id).classList.toggle('hidden', !on);
 const draft = q.has('draft');                 // settings-page preview: config arrives by postMessage
+const measuring = draft && q.has('static');   // the hidden frame Settings uses to measure how big the overlay needs to be
 const dbg = q.get('debug') === '1';
 if (dbg) { const pre = document.createElement('pre'); pre.id = 'dbg'; document.body.appendChild(pre); }
 
@@ -191,7 +195,6 @@ function applyConfig(c) {
   document.documentElement.style.setProperty('--accent', c.accent);
   accentColour = c.accent || DEFAULTS.accent;
   motionRested = false;                                      // redraw the resting mouse frame once in the (possibly new) colour
-  root.style.zoom = c.scale;
   root.style.opacity = c.opacity;
   document.documentElement.style.setProperty('--fill', c.fill);
   for (const n of Object.keys(held)) setMouseButton(n, held[n]);     // re-light held buttons if the invert setting changed
@@ -204,6 +207,7 @@ function applyConfig(c) {
   show('mouse', c.mouse);
   syncViews();
   applyLayout();
+  fitStage();
 }
 
 // ---------------------------------------------------------------- keyboard
@@ -860,6 +864,24 @@ function detectSkin(p) {
   return 'xbox';                          // Xbox pads, XInput, and any generic pad (the most common layout)
 }
 
+// ---------------------------------------------------------------- size and placement
+// The Size setting scales the overlay with a transform, and the overlay sits in a box (#scaleBox) that is given exactly its scaled size, which
+// #stage then aligns to the chosen corner. (It used the CSS "zoom" property, which older embedded browsers such as OBS's handle differently when
+// something is aligned to the bottom or right, so a larger overlay ended up partly outside the source.) If the overlay is bigger than the
+// source it is shrunk to fit, so nothing is ever cut off; Settings' measuring frame is exempt, because it reports the size the overlay needs.
+let effScale = 1;                                  // the scale actually in use (the preset's, or smaller when it has to fit)
+function fitStage() {
+  root.style.transform = '';
+  const w = root.offsetWidth, h = root.offsetHeight;                 // the natural size, which a transform doesn't change
+  let s = cfg.scale || 1;
+  if (!measuring && w && h) s = Math.min(s, innerWidth / w, innerHeight / h);
+  effScale = s = Math.max(0.1, s);
+  root.style.transform = s === 1 ? '' : `scale(${s})`;
+  scaleBox.style.width = (w * s) + 'px'; scaleBox.style.height = (h * s) + 'px';
+}
+new ResizeObserver(() => fitStage()).observe(root);
+addEventListener('resize', fitStage);
+
 // ---------------------------------------------------------------- free layout
 // By default the keyboard, mouse and controllers sit in a row. With "Free layout" on (cfg.layout is an object, not null) every piece is placed
 // where the preset says: cfg.layout = { kb: {x, y}, mouse: {x, y}, pad0: ..., gyro0: ..., pad1: ... } in the overlay's own pixels (before the Size
@@ -882,7 +904,7 @@ function clearLayout() {
 function applyLayout() {
   document.body.classList.toggle('free', !!cfg.layout);
   if (!cfg.layout) { clearLayout(); return; }
-  const z = cfg.scale || 1, items = layoutItems(), L = cfg.layout;
+  const z = effScale, items = layoutItems(), L = cfg.layout;
   // places for pieces that don't have one: where the row put them (measured in the row, so switch back to it for a moment)
   const missing = items.filter(el => !L[el.dataset.item]);
   if (missing.length) {
@@ -902,12 +924,13 @@ function applyLayout() {
     W = Math.max(W, i.p.x - o.x + i.w); H = Math.max(H, i.p.y - o.y + i.h);
   }
   root.style.width = Math.ceil(W + 2 * LAYOUT_PAD) + 'px'; root.style.height = Math.ceil(H + 2 * LAYOUT_PAD) + 'px';
+  fitStage();
 }
 // Dragging (Settings preview only). A piece snaps to the edges and middles of the others when it is near them, and to a 4px grid otherwise.
 function startLayoutDrag(e) {
   if (!draft || !cfg.layout || e.button !== 0) return false;
   const el = e.target.closest && e.target.closest('#root > [data-item]'); if (!el) return false;
-  const z = cfg.scale || 1, L = cfg.layout, key = el.dataset.item, items = layoutItems();
+  const z = effScale, L = cfg.layout, key = el.dataset.item, items = layoutItems();
   applyLayout();                                                             // make sure every piece has a place
   const sizes = Object.fromEntries(items.map(i => { const r = i.getBoundingClientRect(); return [i.dataset.item, { w: r.width / z, h: r.height / z }]; }));
   const origin = { x: Math.min(...items.map(i => L[i.dataset.item].x)), y: Math.min(...items.map(i => L[i.dataset.item].y)) };
