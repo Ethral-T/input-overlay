@@ -71,7 +71,7 @@ Switch 2 Pro or GameCube. **Auto-detect** (the default) picks one from the conne
 Controllers are read through SDL3, with XInput as a fallback.
 
 ### More than one controller
-Set **Controllers to show** (Settings, Controller) to 2, 3 or 4 to show several controllers side by side. They appear in the order the computer finds
+Set **Controllers to show** (Settings, Controller) to 2, 3 or 4 to show several controllers side by side, or to **Auto** to show as many as are connected. They appear in the order the computer finds
 them, so the first one plugged in is player 1, and each gets the artwork that matches it (an Xbox pad next to a PlayStation pad is fine). With **A colour
 for each player** on, players 2 to 4 light up red, green and amber and player 1 keeps your highlight colour. A GameCube adapter in PC mode reports all four
 ports whether or not anything is plugged in, so when there is more than one, a controller there appears the first time you touch it. Gyro tilt and aim boxes work
@@ -132,7 +132,7 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 | `preset` | Preset name |
 | `kb` | `full`, `compact`, `off` |
 | `numpad` | `1` or `0`: include the numeric keypad |
-| `pads` | `1` to `4`: how many controllers to show |
+| `pads` | `1` to `4`, or `auto`: how many controllers to show |
 | `mouse` | `1`, `0` |
 | `pad` | `auto` (only while connected), `1`/`on`, `0`/`off` |
 | `accent` | Highlight colour, for example `f43f5e` or `orange` |

@@ -137,6 +137,10 @@ root.parentNode.insertBefore(scaleBox, root); scaleBox.appendChild(root);
 const show = (id, on) => document.getElementById(id).classList.toggle('hidden', !on);
 const draft = q.has('draft');                 // settings-page preview: config arrives by postMessage
 const measuring = draft && q.has('static');   // the hidden frame Settings uses to measure how big the overlay needs to be
+// In the Settings preview a controller set to "When connected" can be drawn as if one were connected (so there is something to arrange), or only when one really is,
+// which is what an OBS source shows. The measuring frame always counts them, so the size it reports covers the controller being there.
+let previewAsConnected = false;
+const asIfConnected = () => draft && (measuring || previewAsConnected);
 const dbg = q.get('debug') === '1';
 if (dbg) { const pre = document.createElement('pre'); pre.id = 'dbg'; document.body.appendChild(pre); }
 
@@ -158,7 +162,8 @@ function withOverrides(c) {
   const pad = q.get('pad');
   if (pad === '0' || pad === 'off') c.pad = 'off'; else if (pad === '1' || pad === 'on') c.pad = 'on'; else if (pad === 'auto') c.pad = 'auto';
   if (q.get('theme')) c.theme = q.get('theme');
-  if (q.has('pads')) { const n = parseInt(q.get('pads')); if (Number.isFinite(n)) c.pads = clamp(n, 1, 4); }          // 1 to 4 controllers; ignore anything that is not a number
+  if (q.get('pads') === 'auto') c.pads = 'auto';
+  else if (q.has('pads')) { const n = parseInt(q.get('pads')); if (Number.isFinite(n)) c.pads = clamp(n, 1, 4); }          // 1 to 4 controllers; ignore anything that is not a number
   const ctl = q.get('controller') === 'playstation' ? 'ps5' : q.get('controller');          // auto | steam | xbox | playstation | switch | gamecube
   if (ctl && (ctl === 'auto' || LAYERED[ctl])) c.controller = ctl;                          // unknown names are ignored
   if (/^[tmb][lcr]$/.test(q.get('align') || '')) c.align = q.get('align');
@@ -502,8 +507,8 @@ class PadView {
   destroy() { layoutRO.unobserve(this.item); layoutRO.unobserve(this.gitem); this.item.remove(); this.gitem.remove(); this.flood.parentNode.remove(); this.fingers.length = 0; this.seq++; }
 
   get connected() { return !!this.last; }
-  visible() { return cfg.pad === 'on' || (cfg.pad === 'auto' && (this.connected || draft)); }
-  accent() { return (cfg.pads > 1 && cfg.playerColors !== false && PLAYER_COLORS[this.i]) || cfg.accent; }
+  visible() { return cfg.pad === 'on' || (cfg.pad === 'auto' && (this.connected || asIfConnected())); }
+  accent() { return (views.length > 1 && cfg.playerColors !== false && PLAYER_COLORS[this.i]) || cfg.accent; }
   // after the preset or the connection changed
   update() {
     const a = this.accent();
@@ -530,7 +535,7 @@ class PadView {
   updateGyro() {
     const g = this.gyro;
     // the aim box is part of the controller display: it is only shown where the controller is (a preset that hides the controller shows no gyro)
-    this.gitem.classList.toggle('hidden', !(wantAim() && this.visible() && ((g.have && this.connected) || draft)));
+    this.gitem.classList.toggle('hidden', !(wantAim() && this.visible() && ((g.have && this.connected) || asIfConnected())));
     if (!wantTilt() || !g.have) {                    // not tilting: put the picture back
       if (g.tilted) { this.item.style.transform = ''; g.tilted = false; }
       g.pitch = g.yaw = g.roll = 0;
@@ -772,9 +777,11 @@ requestAnimationFrame(drawFingers);
 function drawGyros(now) { for (const v of views) v.drawGyro(now); requestAnimationFrame(drawGyros); }
 requestAnimationFrame(drawGyros);
 
+// How many controllers to show: the preset's number, or with "auto" as many as are connected (at least one, so there is something to show).
+const padCount = () => cfg.pads === 'auto' ? clamp(padStates.length || 1, 1, 4) : clamp(Math.round(cfg.pads) || 1, 1, 4);
 // Make as many PadViews as the preset asks for (1 to 4) and tell each what the preset now says.
 function syncViews() {
-  const n = clamp(Math.round(cfg.pads) || 1, 1, 4);
+  const n = padCount();
   while (views.length > n) views.pop().destroy();
   while (views.length < n) { const v = new PadView(views.length); views.push(v); v.setState(padStates[v.i] || null); }
   views.forEach(v => v.configChanged());
@@ -807,6 +814,7 @@ function debugPad(states) {
 function onPads(list) {
   padStates = Array.isArray(list) ? list.slice(0, 4) : [];
   if (dbg) debugPad(padStates);
+  if (cfg.pads === 'auto' && views.length !== padCount()) syncViews();          // a controller was plugged in or unplugged
   views.forEach((v, i) => v.setState(padStates[i] || null));
 }
 
@@ -1102,6 +1110,7 @@ async function init() {
     addEventListener('message', e => {
       if (e.origin === location.origin && e.data && e.data.type === 'cfg') {
         if (e.data.settings) { settings = { ...settings, ...e.data.settings }; for (const n of Object.keys(held)) setMouseButton(n, held[n]); }
+        previewAsConnected = !!e.data.showPads;
         applyConfig(normalize(e.data.preset));
         // Report the size the overlay needs, so Settings can tell you what to type into OBS.
         Promise.all([themeLoading, ...views.map(v => v.loading)]).then(() => setTimeout(() => {

@@ -19,6 +19,11 @@ def test_pads_clamped_to_1_to_4():
     assert config.clean({"pads": 3})["pads"] == 3
 
 
+def test_pads_auto_is_kept():
+    assert config.clean({"pads": "auto"})["pads"] == "auto"
+    assert config.clean({"pads": "AUTO"})["pads"] == 1          # only the exact word counts
+
+
 def test_pads_not_a_number_gives_default():
     assert config.clean({"pads": "x"})["pads"] == 1
     assert config.clean({"pads": True})["pads"] == 1     # booleans are not numbers here
