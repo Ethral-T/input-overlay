@@ -793,8 +793,9 @@ function watchServer() {
   let timer = null;
   const ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = ev => {
-    let m; try { m = JSON.parse(ev.data); } catch { return; }
-    if (m.reload) { clearTimeout(timer); timer = setTimeout(refreshActive, 120); }     // (several changes in a row are looked at once)
+    // Keys, mouse movement and controller states come through here too, many times a second: only a "reload" message is looked at.
+    if (typeof ev.data !== 'string' || !ev.data.startsWith('{"reload"')) return;
+    clearTimeout(timer); timer = setTimeout(refreshActive, 120);                     // (several changes in a row are looked at once)
   };
   ws.onclose = () => setTimeout(watchServer, 2000);
 }

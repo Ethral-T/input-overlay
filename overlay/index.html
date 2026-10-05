@@ -168,7 +168,8 @@ function withOverrides(c) {
   if (ctl && (ctl === 'auto' || LAYERED[ctl])) c.controller = ctl;                          // unknown names are ignored
   if (/^[tmb][lcr]$/.test(q.get('align') || '')) c.align = q.get('align');
   const acc = q.get('accent');
-  if (acc) c.accent = /^[0-9a-f]{3,8}$/i.test(acc) ? '#' + acc : acc;
+  const accCss = /^[0-9a-f]{3,8}$/i.test(acc || '') ? '#' + acc : acc;
+  if (acc && CSS.supports('color', accCss)) c.accent = accCss;                 // only a real colour (f43f5e, #f43f5e, orange ...) is used
   for (const k in RANGES) {                                  // clamp into range; ignore anything that is not a number (e.g. ?sens=abc)
     const v = parseFloat(q.get(k));
     if (Number.isFinite(v)) c[k] = clamp(v, RANGES[k][0], RANGES[k][1]);

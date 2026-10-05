@@ -48,4 +48,4 @@ the project links above.
 ## Trademarks
 
 Xbox, PlayStation, Nintendo Switch, Switch 2, GameCube, Steam and the Steam Controller are trademarks of their owners. Input Overlay is an independent
-project and is not affiliated with or endorsed by them. The controller drawings are original artwork that only depicts those products' layout.
+project and is not affiliated with or endorsed by them. The controller drawings were made by the project owner: the outlines are traced from publicly available product images, and the parts were measured and placed by hand.

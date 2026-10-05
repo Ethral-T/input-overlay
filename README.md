@@ -27,7 +27,7 @@ Windows or your antivirus may warn about the download. That is a false positive;
    - Click keys to hide or show them, or drag across several. The quick-select buttons (All, None, Letters, Digits, WASD and so on) do it in bulk.
    - Turn the numpad, mouse and controller on or off, then choose the highlight colour, size and theme.
 2. In OBS, add a **Browser Source** with the URL `http://127.0.0.1:8765/`.
-3. Type the width and height that Settings shows under **OBS Browser Source size** into the source's Width and Height boxes.
+3. Type the width and height that Settings shows under **OBS source** into the source's Width and Height boxes.
 
 The source follows your **active preset**, so you never edit the URL again. Changes in Settings and preset switches show up
 instantly, with no reload. To pin a source to one preset (for example a controller-only source on a second scene), use
@@ -166,6 +166,10 @@ the old folder. The request carries no information about you or your computer be
 
 The program listens on `127.0.0.1` only, so nothing outside your PC can connect, and it refuses requests from other websites, because
 any web page could otherwise read your keystrokes from a local server. Don't start it with `--host 0.0.0.0` unless you mean to.
+
+There is no password: it blocks websites, not other programs. Any other program running on your PC, and any other Windows account that is logged in at
+the same time (fast user switching, remote desktop), can connect to the same local address and read what the overlay shows. That is the same reach as
+any keyboard logger on your machine, so only run it on a PC and account you trust.
 
 The keyboard hook is global: the overlay shows keys typed in any window, **including passwords**. Hide the source on sensitive screens.
 
