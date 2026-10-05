@@ -1,4 +1,6 @@
-# Input Overlay
+<p align="center"><img src="docs/logo.png" alt="Input Overlay logo" width="128"></p>
+
+<h1 align="center">Input Overlay</h1>
 
 ![Input Overlay](docs/input-overlay-promo.png)
 
