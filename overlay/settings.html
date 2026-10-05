@@ -191,6 +191,7 @@
       <h2 style="margin:0">Preview &amp; layout</h2>
       <div class="seg" id="bgSeg"><button data-bg="dark" class="on">Dark</button><button data-bg="check">Checker</button><button data-bg="green">Green</button></div>
       <label class="check pinLbl" title="Keeps the preview at the top of the window while you scroll through the settings"><input type="checkbox" id="pinPreview"> Keep in view while scrolling</label>
+      <label class="check pinLbl" style="margin-left:0" title="With Show controller set to When connected, the preview normally shows a controller only while one is really connected, like an OBS source does. Tick this to draw it anyway, so there is something to arrange."><input type="checkbox" id="pvPads"> Show controllers even if none is connected</label>
     </div>
     <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe></div>
     <iframe id="mf" src="/?draft=1&static=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
@@ -248,8 +249,8 @@
           <span class="ctl"><select id="controller"><option value="auto">Auto-detect</option><option value="steam">Steam Controller</option><option value="xbox">Xbox</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="switch">Nintendo Switch</option><option value="switch2">Switch 2 Pro</option><option value="gamecube">GameCube</option></select></span></label>
         <label class="setting"><span class="name">Show controller</span>
           <span class="ctl"><select id="pad"><option value="auto">When connected</option><option value="on">Always</option><option value="off">Hidden</option></select></span></label>
-        <label class="setting"><span class="name">Controllers to show<small>Show up to four controllers side by side, for co-op. They appear in the order the computer finds them: the first one is player 1.</small></span>
-          <span class="ctl"><select id="pads"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></span></label>
+        <label class="setting"><span class="name">Controllers to show<small>Show up to four controllers side by side, for co-op. <b>Auto</b> shows as many as are connected. They appear in the order the computer finds them: the first one is player 1.</small></span>
+          <span class="ctl"><select id="pads"><option value="auto">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></span></label>
         <label class="setting"><span class="name">A colour for each player<small>With more than one controller, players 2 to 4 light up in their own colours (red, green, amber). Player 1 keeps your highlight colour.</small></span>
           <span class="ctl"><input type="checkbox" id="playerColors"></span></label>
         <div class="setting"><div class="name"><div class="nameRow"><label for="gyro">Gyro</label><button type="button" class="scope" data-scope="gyro" aria-pressed="false" title="Click to switch between all presets and just this preset">this preset</button></div><small>For controllers with motion sensors (Steam, PlayStation, Switch). <b>Tilt</b> leans the controller picture as you turn it; <b>Aim</b> adds a box with a dot that follows the turn and leaves a trail. Only shown where the controller is. The Stream Deck gyro buttons switch this to <i>all presets</i>.</small></div>
@@ -415,7 +416,7 @@ $('mouse').onchange = e => { cur.mouse = e.target.value === '1'; changed(); };
 $('pad').onchange = e => { cur.pad = e.target.value; changed(); };
 $('freeLayout').onchange = e => { cur.layout = e.target.checked ? {} : null; syncControls(); changed(); };
 $('layoutReset').onclick = () => { cur.layout = {}; changed(); };
-$('pads').onchange = e => { cur.pads = +e.target.value; changed(); };
+$('pads').onchange = e => { cur.pads = e.target.value === 'auto' ? 'auto' : +e.target.value; changed(); };
 $('playerColors').onchange = e => { cur.playerColors = e.target.checked; changed(); };
 let settingsTimer = null;
 // Which shared settings (and "all presets" tags) this page changed since the last save. Something else (a Stream Deck gyro URL) can change
@@ -684,7 +685,11 @@ $('btnLive').onclick = () => flushThen(async () => {
     active = (await r.json()).active; renderList(); renderUrl(); status('Active preset changed ✓');
   } catch (e) { status('Could not switch: ' + e.message, true); }
 });
-function sendPreview() { const w = $('pv').contentWindow; if (w) w.postMessage({ type: 'cfg', preset: cur, settings }, location.origin); }
+function sendPreview() { const w = $('pv').contentWindow; if (w) w.postMessage({ type: 'cfg', preset: cur, settings, showPads: $('pvPads').checked }, location.origin); }
+let pvPadsSaved = false;
+try { pvPadsSaved = localStorage.getItem('pvPads') === '1'; } catch {}
+$('pvPads').checked = pvPadsSaved;
+$('pvPads').onchange = e => { try { localStorage.setItem('pvPads', e.target.checked ? '1' : '0'); } catch {} sendPreview(); };
 $('pv').addEventListener('load', sendPreview);
 // The preview iframe is laid out at a fixed logical width and scaled to fit the card.
 // While the card is kept in view it may use about a third of the window's height, so the settings below it still have room.

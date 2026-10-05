@@ -12,7 +12,7 @@ A preset is one overlay "variant":
            Gyro is "this preset" scoped, otherwise the shared value in settings applies to every preset),
    "gsens": float (gyro sensitivity),
    "layout": null | {"kb": {"x", "y"}, "mouse": ..., "pad0": ..., "gyro0": ..., ...} (Free layout: where each piece sits; null = in a row),
-   "pads": 1..4 (how many controllers to show at once; they are the connected ones in order), "playerColors": bool (a different highlight colour for players 2-4)}
+   "pads": 1..4 or "auto" (how many controllers to show at once, or as many as are connected; they are the connected ones in order), "playerColors": bool (a different highlight colour for players 2-4)}
 """
 import json
 import os
@@ -110,7 +110,7 @@ def clean(p):
         "tprot": _num(p, "tprot", 9.0, -45.0, 45.0),
         "gyro": p.get("gyro") if p.get("gyro") in ("off", "tilt", "aim", "both") else "off",
         "gsens": _num(p, "gsens", 1.0, 0.1, 5.0),
-        "pads": int(_num(p, "pads", 1, 1, 4)),
+        "pads": "auto" if p.get("pads") == "auto" else int(_num(p, "pads", 1, 1, 4)),         # "auto" = as many as are connected
         "layout": clean_layout(p.get("layout")),
         "playerColors": bool(p.get("playerColors", True)),
     }
