@@ -43,6 +43,12 @@ Tip: add `?debug=1` to the overlay URL to see which controller was detected and 
 - [ ] **Free layout** (Settings, Preview & layout): drag the keyboard, mouse and a controller; they snap to each other's edges; Reset puts them back in a
       row. OBS shows the same arrangement, and the "OBS source" width and height follow it.
 - [ ] Dragging the right edge of a key still resizes it; double-click resets it.
+- [ ] **Move individual keys** (tick it under Free layout, it is greyed out until Free layout is on): drag a key to a new place in the preview; it moves in
+      quarter-key steps and nothing else is pushed away. Hide the ` key, then drag Esc down onto its slot: it sits there. Double-click a moved key to put it
+      back, **Reset keys** puts all back. OBS shows the same arrangement, and it is saved per preset.
+- [ ] Dragging on empty space inside the keyboard (not on a key) still moves the whole keyboard while "Move individual keys" is on.
+- [ ] **Magnifying glass** (top right of the preview): enlarges the preview over the window with the page dimmed; Esc, the button again or a click outside
+      closes it; dragging keys and pieces still works while it is enlarged; the page doesn't jump when it opens or closes.
 
 ## 4. Settings page
 

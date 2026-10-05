@@ -135,6 +135,15 @@
   .layoutBar input[type=range] { width: 130px; }
   .layoutBar label.check { padding: 0; align-self: center; }
   .layoutBar button { padding: 5px 10px; font-size: 12px; }
+  .layoutBar .subOpt { margin-left: -14px; }
+  .layoutBar .subOpt label.check { color: var(--muted); }
+  .layoutBar .subOpt input:disabled { cursor: not-allowed; }
+  .pvZoom { position: absolute; top: 8px; right: 8px; z-index: 5; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 8px;
+            background: rgba(15, 18, 24, .78); color: var(--fg); border: 1px solid rgba(255, 255, 255, .18); cursor: pointer; }
+  .pvZoom:hover, .pvZoom[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  /* the enlarged preview: the same card, taken out of the page and spread over the window, with the page dimmed behind it */
+  #pvScrim { position: fixed; inset: 0; z-index: 190; background: rgba(5, 7, 11, .82); display: none; }
+  #pvCard.zoomed { position: fixed; inset: 14px; z-index: 200; overflow: auto; box-shadow: 0 24px 90px rgba(0, 0, 0, .7); }
   details.pvHelp { margin-top: 8px; }
   details.pvHelp summary { cursor: pointer; color: var(--muted); font-size: 12px; }
   details.pvHelp .muted { margin-top: 6px; }
@@ -208,12 +217,15 @@
       <label class="check pinLbl" title="Keeps the preview at the top of the window while you scroll through the settings"><input type="checkbox" id="pinPreview"> Keep in view while scrolling</label>
       <label class="check pinLbl" style="margin-left:0" title="With Show controller set to When connected, the preview normally shows a controller only while one is really connected, like an OBS source does. Tick this to draw it anyway, so there is something to arrange."><input type="checkbox" id="pvPads"> Show controllers even if none is connected</label>
     </div>
-    <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe></div>
+    <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe>
+      <button type="button" id="pvZoom" class="pvZoom" title="Enlarge the preview (Esc or the same button to close)" aria-label="Enlarge the preview" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21M10.5 7.5v6M7.5 10.5h6"/></svg></button>
+    </div>
     <iframe id="mf" src="/?draft=1&static=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
     <div class="layoutBar">
       <div class="grp"><span class="lbl">Position</span><div class="agrid" id="agrid" title="Where the overlay sits inside the OBS Browser Source"></div></div>
       <div class="grp"><span class="lbl">Size</span><input type="range" id="scale" min="0.25" max="4" step="0.05"><span class="val" id="scaleV"></span></div>
       <div class="grp"><label class="check" title="Arrange the pieces yourself: drag the keyboard, mouse and controllers in the preview. They snap to each other's edges."><input type="checkbox" id="freeLayout"> Free layout</label><button type="button" id="layoutReset" title="Put everything back where the row had it">Reset</button></div>
+      <div class="grp subOpt"><label class="check" title="With Free layout on, drag single keys to new places in the preview (a double-click puts one back). A moved key can sit on the slot of a key you have hidden."><input type="checkbox" id="moveKeys"> Move individual keys</label><button type="button" id="keyPosReset" title="Put every moved key back" hidden>Reset keys</button></div>
       <div class="grp"><span class="lbl">OBS source</span><input type="number" id="srcW" min="100" max="8000" aria-label="Width"><span class="lbl">&times;</span><input type="number" id="srcH" min="50" max="8000" aria-label="Height"><button type="button" id="useLargest">Largest</button><button type="button" id="useThis" title="Use this preset's size">This preset</button></div>
     </div>
     <div class="muted" id="sizeInfo" style="margin-top:10px"></div>
@@ -407,6 +419,7 @@ function syncControls() {
   $('pad').value = cur.pad;
   $('pads').value = String(cur.pads || 1);
   $('freeLayout').checked = !!cur.layout; $('layoutReset').disabled = !cur.layout;
+  $('moveKeys').disabled = !cur.layout; $('keyPosReset').hidden = !Object.keys(cur.keyboard.offsets || {}).length;
   $('playerColors').checked = cur.playerColors !== false;
   $('accent').value = valueOf('accent');
   document.querySelectorAll('#agrid button').forEach(b => b.classList.toggle('on', b.dataset.a === cur.align));
@@ -431,6 +444,8 @@ $('mouse').onchange = e => { cur.mouse = e.target.value === '1'; changed(); };
 $('pad').onchange = e => { cur.pad = e.target.value; changed(); };
 $('freeLayout').onchange = e => { cur.layout = e.target.checked ? {} : null; syncControls(); changed(); };
 $('layoutReset').onclick = () => { cur.layout = {}; changed(); };
+$('moveKeys').onchange = () => sendPreview();                                           // an editing mode, not part of the preset
+$('keyPosReset').onclick = () => { cur.keyboard.offsets = {}; syncControls(); changed(); };
 $('pads').onchange = e => { cur.pads = e.target.value === 'auto' ? 'auto' : +e.target.value; changed(); };
 $('playerColors').onchange = e => { cur.playerColors = e.target.checked; changed(); };
 let settingsTimer = null;
@@ -567,6 +582,11 @@ addEventListener('message', e => {
   if (e.origin === location.origin && e.source === $('pv').contentWindow && e.data && e.data.type === 'layout') {       // a piece was dragged in the preview
     cur.layout = e.data.layout; schedSave(); queueMeasure(); return;
   }
+  if (e.origin === location.origin && e.source === $('pv').contentWindow && e.data && e.data.type === 'keypos') {          // a key was moved in the preview
+    const offs = cur.keyboard.offsets = cur.keyboard.offsets || {};
+    if (!e.data.x && !e.data.y) delete offs[e.data.vk]; else offs[e.data.vk] = { x: e.data.x, y: e.data.y };
+    syncControls(); changed(); return;
+  }
   if (e.origin !== location.origin || e.source !== $('pv').contentWindow || !e.data || e.data.type !== 'keysize') return;
   const sizes = cur.keyboard.sizes = cur.keyboard.sizes || {};
   if (e.data.w == null) delete sizes[e.data.vk]; else sizes[e.data.vk] = e.data.w;
@@ -700,7 +720,10 @@ $('btnLive').onclick = () => flushThen(async () => {
     active = (await r.json()).active; renderList(); renderUrl(); status('Active preset changed ✓');
   } catch (e) { status('Could not switch: ' + e.message, true); }
 });
-function sendPreview() { const w = $('pv').contentWindow; if (w) w.postMessage({ type: 'cfg', preset: cur, settings, showPads: $('pvPads').checked }, location.origin); }
+function sendPreview() {
+  const w = $('pv').contentWindow;
+  if (w) w.postMessage({ type: 'cfg', preset: cur, settings, showPads: $('pvPads').checked, moveKeys: $('moveKeys').checked && !!cur.layout }, location.origin);
+}
 let pvPadsSaved = false;
 try { pvPadsSaved = localStorage.getItem('pvPads') === '1'; } catch {}
 $('pvPads').checked = pvPadsSaved;
@@ -712,8 +735,9 @@ const pinned = () => $('pinPreview').checked && matchMedia('(min-height: 761px)'
 function fitPreview() {
   const box = $('pvbox'), [W, H] = srcSize();
   const side = matchMedia('(min-width: 1750px)').matches;                        // the preview has a column of its own: it can be taller
-  const cap = pinned() ? Math.max(150, side ? innerHeight - 340 : Math.round(innerHeight * 0.34)) : Infinity;
-  const s = Math.min(1, box.clientWidth / W, cap / H);
+  const zoomed = $('pvCard').classList.contains('zoomed');                       // enlarged: as big as the window allows, even past life size
+  const cap = zoomed ? Math.max(200, innerHeight - 330) : pinned() ? Math.max(150, side ? innerHeight - 340 : Math.round(innerHeight * 0.34)) : Infinity;
+  const s = Math.min(zoomed ? 3 : 1, box.clientWidth / W, cap / H);
   const pv = $('pv');
   pv.style.width = W + 'px'; pv.style.height = H + 'px'; pv.style.transform = `scale(${s})`;
   pv.style.left = Math.max(0, (box.clientWidth - W * s) / 2) + 'px';
@@ -728,6 +752,23 @@ $('pinPreview').onchange = e => {
   fitPreview();
 };
 addEventListener('resize', fitPreview); fitPreview();
+
+// The magnifying glass: spread the preview card over the window to see it (and arrange things) in more detail. It leaves a blank of the same size where
+// it was, so the page doesn't jump, and Esc, the button again or a click outside puts it back.
+const pvGhost = Object.assign(document.createElement('div'), { id: 'pvGhost' }), pvScrim = Object.assign(document.createElement('div'), { id: 'pvScrim' });
+document.body.appendChild(pvScrim);
+function setZoom(on) {
+  const card = $('pvCard');
+  if (on === card.classList.contains('zoomed')) return;
+  if (on) { pvGhost.style.height = card.offsetHeight + 'px'; pvGhost.style.gridArea = getComputedStyle(card).gridArea; card.before(pvGhost); }
+  else pvGhost.remove();
+  card.classList.toggle('zoomed', on); pvScrim.style.display = on ? 'block' : 'none';
+  $('pvZoom').setAttribute('aria-pressed', on); $('pvZoom').title = on ? 'Back to normal size (Esc)' : 'Enlarge the preview (Esc or the same button to close)';
+  fitPreview();
+}
+$('pvZoom').onclick = () => setZoom(!$('pvCard').classList.contains('zoomed'));
+pvScrim.onclick = () => setZoom(false);
+addEventListener('keydown', e => { if (e.key === 'Escape' && $('pvCard').classList.contains('zoomed') && !$('sdDlg').open) setZoom(false); });
 
 async function createPreset(base, name) {
   const taken = new Set(presets.map(p => p.name));
