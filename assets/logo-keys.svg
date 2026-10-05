@@ -2,38 +2,38 @@
   <title>Input Overlay: W lit, A S D, and a mouse with its left button pressed</title>
   <g id="keys">
     <g>
-    <rect x="31.7" y="26.4" width="28.4" height="28.4" rx="8.04" fill="#38bdf8" opacity="0.1"/>
-    <rect x="32.9" y="27.6" width="26.0" height="26.0" rx="6.84" fill="#38bdf8" opacity="0.16"/>
-    <rect x="33.9" y="28.6" width="24.0" height="24.0" rx="5.84" fill="#38bdf8" opacity="0.22"/>
-    <rect x="34.9" y="31.0" width="22" height="22" rx="4.84" fill="#1e2430"/>
-    <rect x="34.9" y="29.6" width="22" height="22" rx="4.84" fill="#38bdf8"/>
+    <path d="M39.74 26.4H52.06A8.04 8.04 0 0 1 60.1 34.44V46.76A8.04 8.04 0 0 1 52.06 54.8H39.74A8.04 8.04 0 0 1 31.7 46.76V34.44A8.04 8.04 0 0 1 39.74 26.4Z" fill="#38bdf8" opacity="0.1"/>
+    <path d="M39.74 27.6H52.06A6.84 6.84 0 0 1 58.9 34.44V46.76A6.84 6.84 0 0 1 52.06 53.6H39.74A6.84 6.84 0 0 1 32.9 46.76V34.44A6.84 6.84 0 0 1 39.74 27.6Z" fill="#38bdf8" opacity="0.16"/>
+    <path d="M39.74 28.6H52.06A5.84 5.84 0 0 1 57.9 34.44V46.76A5.84 5.84 0 0 1 52.06 52.6H39.74A5.84 5.84 0 0 1 33.9 46.76V34.44A5.84 5.84 0 0 1 39.74 28.6Z" fill="#38bdf8" opacity="0.22"/>
+    <path d="M39.74 31H52.06A4.84 4.84 0 0 1 56.9 35.84V48.16A4.84 4.84 0 0 1 52.06 53H39.74A4.84 4.84 0 0 1 34.9 48.16V35.84A4.84 4.84 0 0 1 39.74 31Z" fill="#1e2430"/>
+    <path d="M39.74 29.6H52.06A4.84 4.84 0 0 1 56.9 34.44V46.76A4.84 4.84 0 0 1 52.06 51.6H39.74A4.84 4.84 0 0 1 34.9 46.76V34.44A4.84 4.84 0 0 1 39.74 29.6Z" fill="#38bdf8"/>
     <path d="M34.9 34.44 A4.84 4.84 0 0 1 39.74 29.6 H52.06" fill="none" stroke="#7effff" stroke-width="0.9" stroke-linecap="round" transform="translate(0 0.45)"/>
     <g transform="translate(45.9 41.0) scale(1.0)" fill="none" stroke="#06121a" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M-4.7 -4.6 L-2.35 4.6 L0 -0.8 L2.35 4.6 L4.7 -4.6"/></g>
     </g>
     <g>
-    <rect x="9.5" y="56.4" width="22" height="22" rx="4.84" fill="#1e2430"/>
-    <rect x="9.5" y="55" width="22" height="22" rx="4.84" fill="#343c4d"/>
+    <path d="M14.34 56.4H26.66A4.84 4.84 0 0 1 31.5 61.24V73.56A4.84 4.84 0 0 1 26.66 78.4H14.34A4.84 4.84 0 0 1 9.5 73.56V61.24A4.84 4.84 0 0 1 14.34 56.4Z" fill="#1e2430"/>
+    <path d="M14.34 55H26.66A4.84 4.84 0 0 1 31.5 59.84V72.16A4.84 4.84 0 0 1 26.66 77H14.34A4.84 4.84 0 0 1 9.5 72.16V59.84A4.84 4.84 0 0 1 14.34 55Z" fill="#343c4d"/>
     <path d="M9.5 59.84 A4.84 4.84 0 0 1 14.34 55 H26.66" fill="none" stroke="#4e596f" stroke-width="0.9" stroke-linecap="round" transform="translate(0 0.45)"/>
     <g transform="translate(20.5 66.4) scale(1.0)" fill="none" stroke="#e2e8f2" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M-4.2 4.6 L0 -4.8 L4.2 4.6 M-2.5 1.6 H2.5"/></g>
     </g>
     <g>
-    <rect x="34.9" y="56.4" width="22" height="22" rx="4.84" fill="#1e2430"/>
-    <rect x="34.9" y="55" width="22" height="22" rx="4.84" fill="#343c4d"/>
+    <path d="M39.74 56.4H52.06A4.84 4.84 0 0 1 56.9 61.24V73.56A4.84 4.84 0 0 1 52.06 78.4H39.74A4.84 4.84 0 0 1 34.9 73.56V61.24A4.84 4.84 0 0 1 39.74 56.4Z" fill="#1e2430"/>
+    <path d="M39.74 55H52.06A4.84 4.84 0 0 1 56.9 59.84V72.16A4.84 4.84 0 0 1 52.06 77H39.74A4.84 4.84 0 0 1 34.9 72.16V59.84A4.84 4.84 0 0 1 39.74 55Z" fill="#343c4d"/>
     <path d="M34.9 59.84 A4.84 4.84 0 0 1 39.74 55 H52.06" fill="none" stroke="#4e596f" stroke-width="0.9" stroke-linecap="round" transform="translate(0 0.45)"/>
     <g transform="translate(45.9 66.4) scale(1.0)" fill="none" stroke="#e2e8f2" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 -3.1 C2.8 -5.2 -3.7 -5.3 -3.5 -2.1 C-3.3 0.7 3.6 -0.2 3.6 2.7 C3.6 5.5 -3.0 5.3 -3.7 3.1"/></g>
     </g>
     <g>
-    <rect x="60.3" y="56.4" width="22" height="22" rx="4.84" fill="#1e2430"/>
-    <rect x="60.3" y="55" width="22" height="22" rx="4.84" fill="#343c4d"/>
+    <path d="M65.14 56.4H77.46A4.84 4.84 0 0 1 82.3 61.24V73.56A4.84 4.84 0 0 1 77.46 78.4H65.14A4.84 4.84 0 0 1 60.3 73.56V61.24A4.84 4.84 0 0 1 65.14 56.4Z" fill="#1e2430"/>
+    <path d="M65.14 55H77.46A4.84 4.84 0 0 1 82.3 59.84V72.16A4.84 4.84 0 0 1 77.46 77H65.14A4.84 4.84 0 0 1 60.3 72.16V59.84A4.84 4.84 0 0 1 65.14 55Z" fill="#343c4d"/>
     <path d="M60.3 59.84 A4.84 4.84 0 0 1 65.14 55 H77.46" fill="none" stroke="#4e596f" stroke-width="0.9" stroke-linecap="round" transform="translate(0 0.45)"/>
     <g transform="translate(71.3 66.4) scale(1.0)" fill="none" stroke="#e2e8f2" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M-3.4 -4.7 V4.7 H0.2 C5.4 4.7 5.4 -4.7 0.2 -4.7 Z"/></g>
     </g>
   </g>
   <g id="mouse">
-    <rect x="71.5" y="20.9" width="19.0" height="33.0" rx="9.5" fill="#1e2430"/>
-    <rect x="71.5" y="19.5" width="19.0" height="33.0" rx="9.5" fill="#343c4d"/>
+    <path d="M81 20.9H81A9.5 9.5 0 0 1 90.5 30.4V44.4A9.5 9.5 0 0 1 81 53.9H81A9.5 9.5 0 0 1 71.5 44.4V30.4A9.5 9.5 0 0 1 81 20.9Z" fill="#1e2430"/>
+    <path d="M81 19.5H81A9.5 9.5 0 0 1 90.5 29V43A9.5 9.5 0 0 1 81 52.5H81A9.5 9.5 0 0 1 71.5 43V29A9.5 9.5 0 0 1 81 19.5Z" fill="#343c4d"/>
     <path d="M71.5 33.5 V29.0 A9.5 9.5 0 0 1 80.55 19.51 V33.5 Z" fill="#38bdf8"/>
     <path d="M72.5 33.5 H89.5 M81.0 20.3 V33.5" fill="none" stroke="#1e2430" stroke-width="1" stroke-linecap="round"/>
-    <rect x="79.5" y="24.0" width="3" height="6" rx="1.5" fill="#4e596f"/>
+    <path d="M81 24H81A1.5 1.5 0 0 1 82.5 25.5V28.5A1.5 1.5 0 0 1 81 30H81A1.5 1.5 0 0 1 79.5 28.5V25.5A1.5 1.5 0 0 1 81 24Z" fill="#4e596f"/>
   </g>
 </svg>
