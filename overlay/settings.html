@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Input Overlay Settings</title>
+<link rel="icon" type="image/png" href="img/logo.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
@@ -14,8 +15,9 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
   body { display: grid; grid-template-columns: 250px 1fr; }
   aside { background: var(--panel); border-right: 1px solid var(--line); padding: 18px 14px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
-  aside h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: .02em; }
-  aside .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  aside img.logo { width: 72px; height: 72px; display: block; margin: 0 auto 2px; }                  /* the logo, centred above the title */
+  aside h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: .02em; text-align: center; }
+  aside .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; text-align: center; }
   #list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   #list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
   #list li:hover { background: var(--panel2); }
@@ -26,6 +28,10 @@
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .row + .row { margin-top: 10px; }
   .grow { flex: 1 1 auto; }
+  /* the preset name row: Duplicate, Delete and the status line line up with the text box itself, not with the box plus its label above */
+  .row.presetRow { align-items: flex-end; }
+  .presetRow input[type=text], .presetRow button { box-sizing: border-box; height: 38px; }
+  .presetRow #status { height: 38px; line-height: 38px; }
   label.f { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
   input[type=text], select { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; min-width: 0; }
   input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -139,6 +145,7 @@
 </head>
 <body>
 <aside>
+  <img class="logo" src="img/logo-128.png" alt="" width="72" height="72">
   <h1>Input Overlay</h1>
   <div class="sub">Each preset is its own overlay with its own OBS URL.</div>
   <ul id="list"></ul>
@@ -155,7 +162,7 @@
   </div>
 
   <div class="card">
-    <div class="row">
+    <div class="row presetRow">
       <label class="f grow">Preset name<input type="text" id="name" maxlength="40"></label>
       <button id="btnDup">Duplicate</button>
       <button id="btnDel" class="danger">Delete</button>
