@@ -141,6 +141,7 @@ const measuring = draft && q.has('static');   // the hidden frame Settings uses 
 // In the Settings preview a controller set to "When connected" can be drawn as if one were connected (so there is something to arrange), or only when one really is,
 // which is what an OBS source shows. The measuring frame always counts them, so the size it reports covers the controller being there.
 let previewAsConnected = false;
+let moveKeys = false;                              // the Settings preview: "Move individual keys" is on, so dragging a key moves that key
 const asIfConnected = () => draft && (measuring || previewAsConnected);
 const dbg = q.get('debug') === '1';
 if (dbg) { const pre = document.createElement('pre'); pre.id = 'dbg'; document.body.appendChild(pre); }
@@ -220,7 +221,7 @@ function applyConfig(c) {
 // ---------------------------------------------------------------- keyboard
 function renderKeyboard() {
   const k = cfg.keyboard;
-  keyEls = KB.render(document.getElementById('kb'), { visible: k.mode === 'custom' ? new Set(k.keys) : null, sizes: k.sizes, numpad: !!k.numpad });
+  keyEls = KB.render(document.getElementById('kb'), { visible: k.mode === 'custom' ? new Set(k.keys) : null, sizes: k.sizes, numpad: !!k.numpad, offsets: k.offsets });
   for (const vk of [...down]) setKey(vk, 1);
 }
 function setKey(vk, isDown) {
@@ -999,7 +1000,18 @@ function initKeyResize() {
   };
   const place = r => Object.assign(handle.style, { display: 'block', left: (r.right - 3) + 'px', top: r.top + 'px', height: r.height + 'px' });
   const widthOf = vk => (cfg.keyboard.sizes && cfg.keyboard.sizes[vk]) || KB.DEFAULT_W[vk];
+  // Moving one key (Free layout + "Move individual keys"): drag it anywhere, in quarter-key steps. Nothing is pushed out of the way, and it may sit on
+  // the slot of a key that is hidden.
+  let keyDrag = null;
+  const snap = v => Math.round(v / KB.SNAP) * KB.SNAP;
+  const keyUnder = e => (moveKeys && draft && cfg.layout && e.target.closest) ? e.target.closest('#kb .key') : null;
   document.addEventListener('pointermove', e => {
+    if (keyDrag) {
+      const d = keyDrag;
+      const o = { x: snap(d.o0.x + (e.clientX - d.x0) / d.ppu), y: snap(d.o0.y + (e.clientY - d.y0) / d.ppu) };
+      if (o.x !== d.o.x || o.y !== d.o.y) { d.o = o; cfg.keyboard.offsets = { ...(cfg.keyboard.offsets || {}), [d.vk]: o }; renderKeyboard(); }
+      return;
+    }
     if (drag) {
       const w = Math.min(KB.MAX_W, Math.max(KB.MIN_W, Math.round((drag.w0 + (e.clientX - drag.x0) / drag.ppu) / KB.SNAP) * KB.SNAP));
       if (w !== drag.w) { drag.w = w; (cfg.keyboard.sizes = cfg.keyboard.sizes || {})[drag.vk] = w; renderKeyboard(); }
@@ -1010,23 +1022,43 @@ function initKeyResize() {
     if (layoutDrag) return;
     const hit = edgeAt(e.clientX, e.clientY);
     if (hit) { place(hit.r); document.body.style.cursor = 'ew-resize'; }
-    else { handle.style.display = 'none'; document.body.style.cursor = cfg.layout && e.target.closest && e.target.closest('#root > [data-item]') ? 'move' : ''; }
+    else { handle.style.display = 'none'; document.body.style.cursor = keyUnder(e) ? 'grab' : cfg.layout && e.target.closest && e.target.closest('#root > [data-item]') ? 'move' : ''; }
   });
   document.addEventListener('pointerdown', e => {
-    const hit = edgeAt(e.clientX, e.clientY); if (!hit) { startLayoutDrag(e); return; }
+    const hit = edgeAt(e.clientX, e.clientY);
+    if (!hit) {
+      const el = keyUnder(e);
+      if (el && e.button === 0) {                                 // a key: move that key
+        const vk = +el.dataset.vk, o0 = { ...((cfg.keyboard.offsets || {})[vk] || { x: 0, y: 0 }) };
+        const ppu = el.getBoundingClientRect().width / (+el.dataset.w * (KB.U + KB.G) - KB.G) * (KB.U + KB.G);
+        keyDrag = { vk, x0: e.clientX, y0: e.clientY, o0, o: o0, ppu };
+        document.body.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+      startLayoutDrag(e);                                         // anything else: move the whole piece, as before
+      return;
+    }
     const vk = +hit.el.dataset.vk, w0 = widthOf(vk);
     const ppu = hit.r.width / (w0 * (KB.U + KB.G) - KB.G) * (KB.U + KB.G);       // screen px per key unit, whatever zoom is applied
     drag = { vk, w0, w: w0, x0: e.clientX, ppu };
     e.preventDefault();
   });
   document.addEventListener('pointerup', () => {
+    if (keyDrag) {
+      const { vk, o, o0 } = keyDrag; keyDrag = null; document.body.style.cursor = '';
+      if (o.x !== o0.x || o.y !== o0.y) parent.postMessage({ type: 'keypos', vk, x: o.x, y: o.y }, location.origin);
+      return;
+    }
     if (!drag) return;
     const { vk, w, w0 } = drag; drag = null;
     if (w !== w0) parent.postMessage({ type: 'keysize', vk, w }, location.origin);
   });
   document.addEventListener('dblclick', e => {               // double-click an edge to put that key back to its default width
     const hit = edgeAt(e.clientX, e.clientY);
-    if (hit) parent.postMessage({ type: 'keysize', vk: +hit.el.dataset.vk, w: null }, location.origin);
+    if (hit) { parent.postMessage({ type: 'keysize', vk: +hit.el.dataset.vk, w: null }, location.origin); return; }
+    const el = keyUnder(e);                                  // double-click a key (in "Move individual keys") to put that key back where it was
+    if (el) parent.postMessage({ type: 'keypos', vk: +el.dataset.vk, x: 0, y: 0 }, location.origin);
   });
 }
 
@@ -1113,6 +1145,7 @@ async function init() {
       if (e.origin === location.origin && e.data && e.data.type === 'cfg') {
         if (e.data.settings) { settings = { ...settings, ...e.data.settings }; for (const n of Object.keys(held)) setMouseButton(n, held[n]); }
         previewAsConnected = !!e.data.showPads;
+        moveKeys = !!e.data.moveKeys;
         applyConfig(normalize(e.data.preset));
         // Report the size the overlay needs, so Settings can tell you what to type into OBS.
         Promise.all([themeLoading, ...views.map(v => v.loading)]).then(() => setTimeout(() => {

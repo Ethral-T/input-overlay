@@ -1,7 +1,8 @@
 """Preset storage. Presets live in %APPDATA%\\InputOverlay\\config.json.
 
 A preset is one overlay "variant":
-  {"keyboard": {"mode": "full" | "custom" | "off", "keys": [<windows vk codes>], "sizes": {"<vk>": <width in key units>}, "numpad": bool},
+  {"keyboard": {"mode": "full" | "custom" | "off", "keys": [<windows vk codes>], "sizes": {"<vk>": <width in key units>}, "numpad": bool,
+                "offsets": {"<vk>": {"x": units, "y": units}} (single keys moved in Free layout)},
    "mouse": bool, "pad": "auto" | "on" | "off",
    "theme": "<theme id>" ("default" = Classic; see themes.py),
    "controller": "auto" | "steam" | "xbox" | "ps4" | "ps5" | "switch" | "switch2" | "gamecube" (artwork; auto picks from the connected pad),
@@ -93,8 +94,22 @@ def clean(p):
     if not (isinstance(controller, str) and controller in CONTROLLER_STYLES):
         controller = "auto"
     # (the "pad" / "align" / "gyro" checks below are tuple "in" tests, which compare with == and never raise for wrong-typed values)
+    # per-key moves (Free layout, "Move individual keys"): {vk: {x, y}} in key units, snapped to quarter units, at most 130 of them
+    offsets = {}
+    for k, v in (kb.get("offsets") if isinstance(kb.get("offsets"), dict) else {}).items():
+        try:
+            vk = int(k)
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= vk <= 269 and isinstance(v, dict) and len(offsets) < 130):
+            continue
+        xy = [v.get("x"), v.get("y")]
+        if all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in xy):
+            x, y = (round(min(30.0, max(-30.0, float(n))) * 4) / 4 for n in xy)
+            if x or y:
+                offsets[str(vk)] = {"x": x, "y": y}
     return {
-        "keyboard": {"mode": mode, "keys": keys, "sizes": sizes, "numpad": bool(kb.get("numpad", False))},
+        "keyboard": {"mode": mode, "keys": keys, "sizes": sizes, "numpad": bool(kb.get("numpad", False)), "offsets": offsets},
         "mouse": bool(p.get("mouse", True)),
         "swapSide": bool(p.get("swapSide", False)),
         "controller": controller,

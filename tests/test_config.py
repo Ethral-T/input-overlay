@@ -6,7 +6,7 @@ import config
 def test_clean_non_dict_gives_defaults():
     for junk in (None, 5, "x", [], [1, 2]):
         p = config.clean(junk)
-        assert p["keyboard"] == {"mode": "full", "keys": [], "sizes": {}, "numpad": False}
+        assert p["keyboard"] == {"mode": "full", "keys": [], "sizes": {}, "numpad": False, "offsets": {}}
         assert p["controller"] == "auto" and p["pad"] == "auto" and p["align"] == "mc"
         assert p["accent"] == "#38bdf8" and p["theme"] == "default"
 
@@ -175,3 +175,22 @@ def test_cycle_wraps_around(tmp_path):
     c.set_active(names[-1])
     assert c.cycle(1) == names[0]
     assert c.cycle(-1) == names[-1]
+
+
+def test_key_offsets_are_cleaned():
+    kb = config.clean({"keyboard": {"offsets": {
+        "27": {"x": 1.1, "y": 2.3},               # snapped to quarter units
+        "192": {"x": 0, "y": 0},                   # nothing moved: dropped
+        "65": {"x": 99, "y": -99},                 # clamped to 30 units
+        "x": {"x": 1, "y": 1}, "300": {"x": 1, "y": 1}, "66": {"x": True, "y": 1}, "67": 5,        # not a key, out of range, a bool, not a dict
+        "269": {"x": -1, "y": 0.2},
+    }}})["keyboard"]
+    assert kb["offsets"] == {"27": {"x": 1.0, "y": 2.25}, "65": {"x": 30.0, "y": -30.0}, "269": {"x": -1.0, "y": 0.25}}
+    assert config.clean({})["keyboard"]["offsets"] == {}
+    assert config.clean({"keyboard": {"offsets": [1, 2]}})["keyboard"]["offsets"] == {}
+
+
+def test_at_most_130_key_offsets():
+    many = {str(vk): {"x": 1, "y": 1} for vk in range(0, 200)}
+    assert len(config.clean({"keyboard": {"offsets": many}})["keyboard"]["offsets"]) == 130
+

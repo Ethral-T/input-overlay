@@ -53,12 +53,15 @@ const KB = (() => {
     });
     return keys;
   }
-  function layout(sizes, numpad) {
+  // `offsets` maps a key's vk code to {x, y}: how far (in key units) that one key has been moved from where the layout puts it. Moving a key
+  // doesn't push the others about, and it may sit on top of a slot whose key is hidden.
+  function layout(sizes, numpad, offsets) {
     const main = place(MAIN, 0, sizes);
     const mainWidth = Math.max(...main.map(k => k.x + k.w));
     const nav = place(NAV, mainWidth + .35, sizes);
-    if (!numpad) return [...main, ...nav];
-    return [...main, ...nav, ...place(NUMPAD, Math.max(...nav.map(k => k.x + k.w)) + .35, sizes)];
+    const keys = !numpad ? [...main, ...nav] : [...main, ...nav, ...place(NUMPAD, Math.max(...nav.map(k => k.x + k.w)) + .35, sizes)];
+    if (offsets) for (const k of keys) { const o = offsets[k.vk]; if (o) { k.x += o.x || 0; k.y += o.y || 0; k.moved = true; } }
+    return keys;
   }
   const ALL = layout(null, true);                             // every key there is (key lists, groups, default widths)
   const NUMPAD_VKS = layout(null, true).slice(layout(null, false).length).map(k => k.vk);
@@ -88,11 +91,12 @@ const KB = (() => {
    *   editor:  render every key (hidden ones get class "off") and don't crop
    *   sizes:   per-key width overrides, {vk: units}
    *   numpad:  include the numeric keypad
+   *   offsets: per-key moves, {vk: {x, y}} in key units
    */
-  function render(host, { visible = null, editor = false, sizes = null, numpad = false } = {}) {
+  function render(host, { visible = null, editor = false, sizes = null, numpad = false, offsets = null } = {}) {
     host.textContent = '';
     const els = new Map();
-    const all = layout(sizes, numpad);
+    const all = layout(sizes, numpad, offsets);
     const shown = all.filter(k => editor || !visible || visible.has(k.vk));
     if (!shown.length) { host.style.width = host.style.height = '0'; return els; }
     const crop = editor ? all : shown;
@@ -112,6 +116,7 @@ const KB = (() => {
         position: 'absolute', left: (k.x - minX) * (U + G) + 'px', top: (k.y - minY) * (U + G) + 'px',
         width: k.w * (U + G) - G + 'px', height: k.h * (U + G) - G + 'px',
       });
+      if (k.moved) el.style.zIndex = 2;                  // a moved key is drawn over the ones it was moved onto
       host.appendChild(el);
       if (!els.has(k.vk)) els.set(k.vk, []);
       els.get(k.vk).push(el);

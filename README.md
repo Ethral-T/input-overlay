@@ -45,7 +45,9 @@ Presets are stored in `%APPDATA%\InputOverlay\config.json`, with a log, `log.txt
 - Use the **Size** slider to scale the overlay instead of stretching the source in OBS, which makes it blurry.
   If the overlay (at that size) is bigger than the Browser Source, it is shrunk to fit so nothing is cut off; make the source bigger to show it at full size.
 - **Free layout** (Position & size) lets you drag the keyboard, mouse and each controller to wherever you like in the preview. Pieces snap to each
-  other's edges and middles. Press **Reset** to put them back in a row.
+  other's edges and middles. Press **Reset** to put them back in a row. Tick **Move individual keys** (it appears under Free layout) to drag single keys
+  to new places; a moved key may sit on the slot of a key you have hidden, a double-click puts one back, and **Reset keys** puts them all back.
+- The magnifying glass in the corner of the preview enlarges it over the whole window so you can see and arrange things in more detail (Esc closes it).
 - To resize a key, drag the right edge of it in the Settings preview. It snaps to quarter-key steps, and the keys after it shift to
   follow. Double-click an edge to reset that key, or press **Reset key sizes** to clear them all.
 
