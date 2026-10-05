@@ -780,6 +780,26 @@ $('updNow').onclick = async () => {
 $('updateCheck').onchange = e => { settings.updateCheck = e.target.checked; saveSettings(); setTimeout(loadUpdate, 600); };
 loadUpdate();
 
+// ---------------------------------------------------------------- live updates
+// The server tells every open page when something changes (a Stream Deck or hotkey URL, the tray menu, another browser tab). Here that is used to keep
+// the "active" tag and the "Make this the active preset" button right without reloading the page.
+async function refreshActive() {
+  try {
+    const data = await (await api('')).json();
+    if (data.active !== active) { active = data.active; renderList(); renderUrl(); }
+  } catch {}
+}
+function watchServer() {
+  let timer = null;
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.reload) { clearTimeout(timer); timer = setTimeout(refreshActive, 120); }     // (several changes in a row are looked at once)
+  };
+  ws.onclose = () => setTimeout(watchServer, 2000);
+}
+watchServer();
+
 load(new URLSearchParams(location.search).get('preset'));
 </script>
 </body>
