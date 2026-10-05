@@ -1061,7 +1061,7 @@ function flushPads() {
 }
 
 function connect() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.onopen = () => {
     // Key and button releases sent while we were disconnected were lost, so let go of everything; anything still
     // physically held is lit again by its next press.

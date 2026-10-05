@@ -175,6 +175,14 @@
       the tray icon, or a Stream Deck button (below). Changes you make here apply to running sources immediately.</div>
   </div>
 
+  <div class="card" id="lanCard" hidden>
+    <h2>Another PC (LAN access)</h2>
+    <div class="muted">Other PCs can load this overlay. Only <b id="lanAllowed"></b> is let in, and only with the secret link below. Open the link on that PC (for OBS,
+      use it as the Browser Source URL; add <code>&amp;preset=Name</code> to pin one preset). Treat the link like a password.</div>
+    <div id="lanUrls" style="margin-top:10px"></div>
+    <div class="muted" id="lanNote" style="margin-top:8px"></div>
+  </div>
+
   <div class="card">
     <h2>Stream Deck / hotkey control</h2>
     <div class="row" style="justify-content:space-between">
@@ -780,6 +788,26 @@ $('updNow').onclick = async () => {
 $('updateCheck').onchange = e => { settings.updateCheck = e.target.checked; saveSettings(); setTimeout(loadUpdate, 600); };
 loadUpdate();
 
+// ---------------------------------------------------------------- LAN access (only shown when the program was started with --allow-lan)
+async function showLan() {
+  try {
+    const d = await (await fetch('/api/lan')).json();
+    if (!d.enabled) return;
+    $('lanCard').hidden = false;
+    $('lanAllowed').textContent = d.allowed.join(', ');
+    const list = $('lanUrls'); list.textContent = '';
+    for (const url of d.urls.length ? d.urls : ['(no network address found: use this PC\'s address, port ' + d.port + ', with ?token=… from log.txt)']) {
+      const row = document.createElement('div'); row.className = 'urlrow'; row.style.marginTop = '6px';
+      const u = document.createElement('div'); u.className = 'url'; u.textContent = url;
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Copy'; b.onclick = () => copyText(url, u);
+      row.append(u, b); list.appendChild(row);
+    }
+    $('lanNote').textContent = d.tls ? 'The connection is encrypted (https).'
+      : 'This link is not encrypted. If other people share your network (an apartment building, a dorm, shared Wi-Fi) use a direct cable between the two PCs, a VPN such as Tailscale, or start the program with --tls-cert and --tls-key.';
+  } catch {}
+}
+showLan();
+
 // ---------------------------------------------------------------- live updates
 // The server tells every open page when something changes (a Stream Deck or hotkey URL, the tray menu, another browser tab). Here that is used to keep
 // the "active" tag and the "Make this the active preset" button right without reloading the page.
@@ -791,7 +819,7 @@ async function refreshActive() {
 }
 function watchServer() {
   let timer = null;
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.onmessage = ev => {
     // Keys, mouse movement and controller states come through here too, many times a second: only a "reload" message is looked at.
     if (typeof ev.data !== 'string' || !ev.data.startsWith('{"reload"')) return;

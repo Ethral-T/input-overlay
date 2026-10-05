@@ -29,11 +29,15 @@ import asyncio
 import collections
 import contextlib
 import ctypes
+import hmac
+import ipaddress
 import json
 import os
 import re
 import secrets
 import signal
+import socket
+import ssl
 import sys
 import threading
 import time
@@ -509,6 +513,160 @@ CONFIG = web.AppKey("config", config.Config)
 THEMES = web.AppKey("themes", themes.Themes)
 
 
+# --------------------------------------------------------------------------
+# LAN access (a second PC loading the overlay, as in two-PC streaming)
+#
+# By default the server answers this PC only. It will listen on a network address only when told to with --allow-lan, which takes the address(es)
+# that may connect. Then, for anything that is not this PC:
+#   1. the connecting address must be one of the allowed ones (a neighbour on the same network, or in the same building, is refused),
+#   2. the request must carry a long random secret (a link with ?token=..., which sets a cookie), compared in constant time,
+#   3. an address that sends the wrong secret too many times is shut out for a while.
+# Allowed addresses can't be a whole big network (0.0.0.0/0 and the like are refused). None of this encrypts the traffic: see the README for how to
+# make sure nobody on a shared network can capture it (a direct cable, a VPN such as Tailscale, or --tls-cert / --tls-key).
+# --------------------------------------------------------------------------
+LAN = {"networks": [], "token": None, "host": None, "port": None, "ssl": None}
+TOKEN_FILE = config.APP_DIR / "lan-token.txt"
+MIN_PREFIX = {4: 24, 6: 64}                          # the widest network that may be allowed: a /24 (IPv4, 256 addresses) or a /64 (IPv6)
+FAIL_LIMIT, FAIL_WINDOW, FAIL_BLOCK = 10, 60.0, 300.0         # this many wrong secrets within 60 s shuts an address out for 5 minutes
+_failures, _blocked = {}, {}
+
+
+def add_network_args(ap):
+    """The options every way of starting the server shares."""
+    ap.add_argument("--host", default="127.0.0.1", help="address to listen on (default: this PC only)")
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--pad", type=int, default=None, help="controller index when several are connected (default: first)")
+    ap.add_argument("--allow-lan", nargs="+", metavar="ADDRESS", default=None,
+                    help="needed to listen on anything but this PC: the address(es) or network(s) allowed to connect, e.g. 192.168.1.50")
+    ap.add_argument("--tls-cert", help="certificate file, to serve https/wss (with --tls-key)")
+    ap.add_argument("--tls-key", help="private key file for --tls-cert")
+
+
+def parse_allow_lan(values):
+    """The networks named by --allow-lan (addresses or CIDR networks, spaces or commas between them). ValueError says what is wrong."""
+    nets = []
+    for value in values or []:
+        for part in str(value).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                net = ipaddress.ip_network(part, strict=False)
+            except ValueError:
+                raise ValueError(f"--allow-lan: {part!r} is not an address or a network (an example: 192.168.1.50)") from None
+            if net.prefixlen < MIN_PREFIX[net.version]:
+                raise ValueError(f"--allow-lan: {part!r} is far too wide: it would let a whole network in. Name the one PC that needs access, "
+                                 f"or at most a /{MIN_PREFIX[net.version]} network.")
+            nets.append(net)
+    return nets
+
+
+def load_token():
+    """The secret other PCs must present: created once, kept in the settings folder, and the same from then on. Delete the file for a new one."""
+    try:
+        token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if len(token) >= 20:
+            return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(24)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.write_text(token, encoding="utf-8")
+    return token
+
+
+def lan_setup(args):
+    """Check the network options and switch LAN access on or off. Returns a message that says what is wrong, or None when all is well."""
+    LAN.update(networks=[], token=None, host=args.host, port=args.port, ssl=None)
+    cert, key = getattr(args, "tls_cert", None), getattr(args, "tls_key", None)
+    if bool(cert) != bool(key):
+        return "--tls-cert and --tls-key have to be given together."
+    if cert:
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(cert, key)
+        except (OSError, ssl.SSLError) as e:
+            return f"Could not load the certificate: {e}"
+        LAN["ssl"] = ctx
+    allow = getattr(args, "allow_lan", None)
+    if args.host in LOOPBACK:
+        return "--allow-lan only makes sense together with --host set to this PC's network address (it is %s now)." % args.host if allow else None
+    if not allow:
+        return (f"Input Overlay won't listen on {args.host}: that would let other devices on the network read every key you type.\n\n"
+                "To let ONE other PC load the overlay (two-PC streaming), start it with --allow-lan and that PC's address, for example:\n"
+                "    InputOverlay.exe --host 0.0.0.0 --allow-lan 192.168.1.50\n\n"
+                "Only that address is let in, and it also needs the secret link shown in Settings.")
+    try:
+        LAN["networks"] = parse_allow_lan(allow)
+    except ValueError as e:
+        return str(e)
+    if not LAN["networks"]:
+        return "--allow-lan needs at least one address."
+    LAN["token"] = load_token()
+    return None
+
+
+def remote_ip(request):
+    """The address a request came from (an IPv4 address that arrived as ::ffff:a.b.c.d counts as the IPv4 address), or None if there isn't one."""
+    try:
+        ip = ipaddress.ip_address((request.remote or "").split("%")[0])
+    except ValueError:
+        return None
+    return ip.ipv4_mapped if ip.version == 6 and ip.ipv4_mapped else ip
+
+
+def lan_verdict(ip, supplied, now=None):
+    """None when a request may go on, otherwise why it is refused. This PC is always let in; anything else needs LAN access switched on, an
+    allowed address and the secret."""
+    now = time.monotonic() if now is None else now
+    if ip is not None and ip.is_loopback:
+        return None
+    if not LAN["networks"]:
+        return "this program only answers on this PC"
+    if ip is None or not any(ip in net for net in LAN["networks"]):
+        return "address not allowed"
+    if _blocked.get(ip, 0) > now:
+        return "too many wrong secrets: try again later"
+    if supplied and hmac.compare_digest(supplied.encode(), LAN["token"].encode()):
+        _failures.pop(ip, None)
+        return None
+    recent = [t for t in _failures.get(ip, []) if now - t < FAIL_WINDOW] + [now]
+    _failures[ip] = recent
+    if len(recent) >= FAIL_LIMIT:
+        _blocked[ip] = now + FAIL_BLOCK
+        _failures.pop(ip, None)
+    return "wrong or missing secret"
+
+
+def supplied_token(request):
+    return request.cookies.get("io_token") or request.query.get("token") or request.headers.get("X-IO-Token") or ""
+
+
+def local_addresses(host):
+    """The addresses other PCs can use to reach this one: the one it listens on, or (when it listens on all of them) this PC's own."""
+    if host not in ("0.0.0.0", "::", ""):
+        return [host]
+    found = []
+    with contextlib.suppress(OSError):
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            a = info[4][0]
+            if a not in found and not a.startswith(("127.", "169.254.")):
+                found.append(a)
+    return found
+
+
+async def api_lan(request):
+    """How another PC reaches this one, with the secret. Only ever answered to this PC itself, never to the network."""
+    ip = remote_ip(request)
+    if ip is None or not ip.is_loopback:
+        raise web.HTTPForbidden(text="only answered to this PC")
+    if not LAN["networks"]:
+        return web.json_response({"enabled": False})
+    scheme = "https" if LAN["ssl"] else "http"
+    return web.json_response({"enabled": True, "tls": bool(LAN["ssl"]), "allowed": [str(n) for n in LAN["networks"]], "port": LAN["port"],
+                              "urls": [f"{scheme}://{h}:{LAN['port']}/?token={LAN['token']}" for h in local_addresses(LAN["host"])]})
+
+
 @web.middleware
 async def guard(request, handler):
     """Stop other websites from reading the keystroke stream or editing presets.
@@ -516,6 +674,9 @@ async def guard(request, handler):
     A page on any origin can open ws://127.0.0.1:<port>, so reject cross-origin requests (Origin must match Host)
     and, when bound to loopback, requests whose Host isn't loopback (DNS rebinding).
     """
+    why = lan_verdict(remote_ip(request), supplied_token(request))
+    if why:
+        raise web.HTTPForbidden(text=why)
     host_header = request.headers.get("Host", "")
     origin = request.headers.get("Origin")
     if origin and urlparse(origin).netloc != host_header:
@@ -540,6 +701,10 @@ async def security_headers(request, handler):
         raise
     if not resp.prepared:
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        ip = remote_ip(request)
+        if LAN["token"] and request.query.get("token") and ip is not None and not ip.is_loopback:
+            # the guard already checked the secret: remember it, so the page's own requests and its WebSocket carry it without the link
+            resp.set_cookie("io_token", LAN["token"], httponly=True, samesite="Strict", secure=request.secure, max_age=90 * 24 * 3600)
     return resp
 
 
@@ -587,8 +752,9 @@ HOST_RE = re.compile(r"^[A-Za-z0-9.\-]+(:\d{1,5})?$|^\[[0-9A-Fa-f:]+\](:\d{1,5})
 
 def page_csp(request, nonce):
     host = request.host if HOST_RE.match(request.host or "") else "127.0.0.1"
+    ws = "wss" if request.secure else "ws"
     return (f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-            f"font-src 'self' data:; connect-src 'self' ws://{host}; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; "
+            f"font-src 'self' data:; connect-src 'self' {ws}://{host}; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; "
             "base-uri 'self'; form-action 'self'")
 
 
@@ -839,6 +1005,9 @@ async def stuck_key_sweeper():
 
 
 async def main(args):
+    problem = lan_setup(args)
+    if problem:
+        raise SystemExit(problem)
     hub.loop = asyncio.get_running_loop()
     hub.queue = asyncio.Queue()
 
@@ -862,7 +1031,7 @@ async def main(args):
                     web.get("/index.html", static_page("index.html")), web.get("/settings.html", static_page("settings.html")),
                     web.get("/ws", ws_handler), web.get("/api/presets", api_list), web.put("/api/settings", api_put_settings),
                     web.get("/api/themes", api_themes), web.post("/api/themes/open", api_open_themes),
-                    web.get("/api/update", api_update), web.post("/api/update/check", api_update_check),
+                    web.get("/api/update", api_update), web.post("/api/update/check", api_update_check), web.get("/api/lan", api_lan),
                     web.get("/themes/{id}/{path:.+}", theme_file),
                     web.put("/api/presets/{name}", api_put), web.delete("/api/presets/{name}", api_delete),
                     web.route("*", "/api/switch", api_switch), web.route("*", "/api/switch/{name}", api_switch),
@@ -872,20 +1041,23 @@ async def main(args):
     app.router.add_static("/", ROOT)
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, args.host, args.port).start()
+    await web.TCPSite(runner, args.host, args.port, ssl_context=LAN["ssl"]).start()
 
-    print(f"Input Overlay running.\n  Settings: http://{args.host}:{args.port}/settings  (copy each preset's OBS URL from there)")
-    if not app[LOOPBACK_ONLY]:
-        print("WARNING: listening on a non-loopback address - anyone who can reach it can read your keystrokes.")
+    scheme = "https" if LAN["ssl"] else "http"
+    print(f"Input Overlay running.\n  Settings: {scheme}://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}/settings  (copy each preset's OBS URL from there)")
+    if LAN["networks"]:
+        print(f"LAN access is ON. Allowed: {', '.join(str(n) for n in LAN['networks'])}. Other PCs open one of these links (they carry the secret):")
+        for h in local_addresses(args.host):
+            print(f"    {scheme}://{h}:{args.port}/?token={LAN['token']}")
+        if not LAN["ssl"]:
+            print("  The traffic is not encrypted: use a direct cable, a VPN or --tls-cert/--tls-key if others share your network (see the README).")
     print("Press Ctrl+C to stop.")
     await asyncio.gather(broadcaster(), motion_flusher(), update_checker(), stuck_key_sweeper())
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--pad", type=int, default=None, help="controller index when several are connected (default: first)")
+    add_network_args(p)
     # The global hook threads can keep the process alive after Ctrl+C, so exit hard.
     signal.signal(signal.SIGINT, lambda *_: os._exit(0))
     signal.signal(signal.SIGBREAK, lambda *_: os._exit(0))

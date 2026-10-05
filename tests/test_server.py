@@ -32,11 +32,11 @@ def test_pages_get_a_fresh_nonce_each_time():
 
 
 def test_csp_uses_the_host_only_when_it_looks_like_one():
-    ok = server.page_csp(NS(host="127.0.0.1:8765"), "abc")
+    ok = server.page_csp(NS(host="127.0.0.1:8765", secure=False), "abc")
     assert "connect-src 'self' ws://127.0.0.1:8765;" in ok
-    assert "ws://[::1]:8765" in server.page_csp(NS(host="[::1]:8765"), "abc")
+    assert "ws://[::1]:8765" in server.page_csp(NS(host="[::1]:8765", secure=False), "abc")
     for odd in ("evil.example; script-src *", "a b", "", None, "x/y"):
-        assert "ws://127.0.0.1;" in server.page_csp(NS(host=odd), "abc")             # falls back instead of echoing it
+        assert "ws://127.0.0.1;" in server.page_csp(NS(host=odd, secure=False), "abc")             # falls back instead of echoing it
 
 
 def test_every_response_says_nosniff():
