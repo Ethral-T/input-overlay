@@ -26,6 +26,7 @@ Messages (JSON, server -> overlay):
 """
 import argparse
 import asyncio
+import collections
 import ctypes
 import json
 import os
@@ -98,19 +99,25 @@ def vk_of(key):
 
 
 _down_keys = set()
-_extended = False                      # the low-level hook's "extended key" flag of the key event being handled
+# Numpad Enter is the same virtual key as the main Enter (VK_RETURN), told apart only by the hook's "extended key" flag. pynput hands that flag
+# to kb_filter on the hook's thread, but calls on_press / on_release later on its own thread, so one shared variable could belong to a newer event
+# (an arrow key typed in between, say) and a plain Enter would be taken for numpad Enter. Instead every Return event queues its own flag, and
+# the next Return press or release takes it back off, in the same order.
+_return_flags = collections.deque(maxlen=64)
 
 
 def kb_filter(msg, data):
-    """Runs just before on_press / on_release, on the same thread: remember whether Windows marks this key as an extended key."""
-    global _extended
-    _extended = bool(data.flags & 1)   # LLKHF_EXTENDED
+    """Runs on the hook's thread for every key event, just before pynput queues it: note whether a Return key is the extended (numpad) one."""
+    if data.vkCode == 13:
+        _return_flags.append(bool(data.flags & 1))       # LLKHF_EXTENDED
     return True
 
 
 def _vk(key):
     vk = vk_of(key)
-    return 269 if vk == 13 and _extended else vk        # numpad Enter is an extended Return: 269 is the overlay's own code for it
+    if vk == 13:                                         # main Enter stays 13; numpad Enter is the overlay's own code 269
+        return 269 if (_return_flags.popleft() if _return_flags else False) else 13
+    return vk
 
 
 def on_press(key):
@@ -422,46 +429,66 @@ class XInputBackend:
         return states
 
 
+class BackendRunner(threading.Thread):
+    """Polls ONE controller backend on its own thread and keeps its latest controllers in `states`.
+
+    Looking for a device that isn't there can be slow (the GameCube adapter reader scans every USB device, about 0.3 s, every couple of seconds
+    while no adapter is plugged in). On the shared loop that froze every controller on screen for that long, over and over, so each backend
+    gets a thread of its own and a slow one can only hold up itself.
+
+    A backend that throws is skipped for a while (1 s, doubling up to 30 s, back to normal after one good poll) and contributes nothing meanwhile.
+    Its error message is throttled: the first one is printed, then at most one per minute with a repeat count."""
+
+    def __init__(self, backend):
+        super().__init__(daemon=True, name="pad-" + backend.name)
+        self.backend = backend
+        self.states = []                  # replaced (never edited) by this thread; the merging loop only reads it
+        self.retry_at = 0.0
+        self.delay = 0.0
+        self.last_print = -60.0
+        self.repeats = 0
+
+    def run(self):
+        b = self.backend
+        while True:
+            now = time.monotonic()
+            if now >= self.retry_at:
+                try:
+                    res = b.poll()
+                    self.delay = 0.0                 # one good poll resets the back-off
+                    self.states = [res] if isinstance(res, dict) else list(res or [])
+                except Exception as e:  # noqa: BLE001 - one misbehaving backend must not stop the others
+                    self.states = []
+                    self.delay = min(30.0, (self.delay or 0.5) * 2)
+                    self.retry_at = now + self.delay
+                    if now - self.last_print >= 60:
+                        extra = f" (repeated {self.repeats} times)" if self.repeats else ""
+                        print(f"[pad] {b.name} error: {e!r}{extra}")
+                        self.last_print, self.repeats = now, 0
+                    else:
+                        self.repeats += 1
+            time.sleep(1 / 120 if self.states else 0.25)
+
+
 def gamepad_thread(index):
-    backends = []
+    runners = []
     for cls in (SdlBackend, GcAdapterBackend, Switch2ProBackend, XInputBackend):
         try:
-            backends.append(cls(index))
+            runners.append(BackendRunner(cls(index)))
         except OSError as e:
             print(f"[pad] {cls.name} unavailable: {e}")
-    if not backends:
+    if not runners:
         print("[pad] no controller backend available; controller disabled")
         return
+    for r in runners:
+        r.start()
     last = None
-    # A backend that throws is skipped for a while (1 s, doubling up to 30 s, back to normal after one good poll) so the
-    # others keep running at full rate. Its error message is also throttled: the first one is printed, then at most one per minute.
-    retry_at = {}              # backend -> time.monotonic() before which it is not polled
-    delay = {}                 # backend -> current back-off in seconds
-    last_print = {}            # backend -> time.monotonic() of the last printed error
-    repeats = {}               # backend -> errors seen since that print
     while True:
         states = []
-        for b in backends:                          # every backend adds the controllers it sees (the fallback only if there are none yet)
-            if getattr(b, "fallback", False) and states:
+        for r in runners:                           # every backend adds the controllers it sees (the fallback only if there are none yet)
+            if getattr(r.backend, "fallback", False) and states:
                 continue
-            now = time.monotonic()
-            if now < retry_at.get(b, 0):            # backing off after an error: this backend adds nothing this time
-                continue
-            try:
-                res = b.poll()
-                delay.pop(b, None)                  # one good poll resets the back-off
-            except Exception as e:  # noqa: BLE001 - one misbehaving backend must not stop the controller loop
-                res = None
-                delay[b] = min(30, delay.get(b, 0.5) * 2)
-                retry_at[b] = now + delay[b]
-                if now - last_print.get(b, -60) >= 60:
-                    extra = f" (repeated {repeats.get(b, 0)} times)" if repeats.get(b) else ""
-                    print(f"[pad] {b.name} error: {e!r}{extra}")
-                    last_print[b] = now
-                    repeats[b] = 0
-                else:
-                    repeats[b] = repeats.get(b, 0) + 1
-            states.extend([res] if isinstance(res, dict) else res or [])
+            states.extend(r.states)
         states = states[:MAX_PADS]
         if states != last:
             if len(states) != len(last or []):
@@ -469,7 +496,7 @@ def gamepad_thread(index):
             last = states
             hub.pad_state = states
             hub.emit({"p": states})
-        time.sleep(1 / 120 if states else 0.5)
+        time.sleep(1 / 240 if states else 0.25)
 
 
 # --------------------------------------------------------------------------

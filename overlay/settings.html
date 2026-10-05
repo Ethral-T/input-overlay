@@ -64,7 +64,8 @@
   .val { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 38px; display: inline-block; }
 
   /* keyboard editor */
-  #editor { margin-top: 14px; overflow: auto; padding: 4px 2px 8px; user-select: none; touch-action: none; }
+  #edWrap { margin-top: 14px; overflow: hidden; }                          /* the key picker is shrunk to fit this (see fitEditor) */
+  #editor { transform-origin: 0 0; padding: 4px 2px 8px; user-select: none; touch-action: none; }
   #editor .key[data-len="4"], #editor .key[data-len="5"] { font-size: 11px; }
   #editor .key { display: flex; align-items: center; justify-content: center; background: var(--key-bg); border: 1px solid var(--key-border);
                  border-radius: 7px; color: var(--key-fg); font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .08s; }
@@ -100,6 +101,32 @@
   label.check { display: inline-flex; align-items: center; gap: 8px; align-self: flex-end; padding: 8px 4px; cursor: pointer; user-select: none; }
   label.check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; cursor: pointer; }
   a.btnlink { background: var(--accent); color: #06121a; border-radius: 8px; padding: 8px 14px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  /* The page is one column. On a wide window the preview card moves into a column of its own on the right and stays in view there. */
+  #colA, #colB { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  @media (min-width: 1750px) {
+    main { display: grid; grid-template-columns: minmax(930px, 1000px) minmax(480px, 900px); grid-template-areas: "a pv" "b pv"; grid-template-rows: auto 1fr;
+           gap: 16px; max-width: none; align-content: start; }
+    #colA { grid-area: a; }
+    #colB { grid-area: b; }
+    #pvCard { grid-area: pv; align-self: start; }
+  }
+  /* the preview card stays in view while the rest of the page scrolls under it */
+  #pvCard { position: sticky; top: -20px; z-index: 30; box-shadow: 0 12px 32px rgba(0,0,0,.55); }
+  #pvCard.unpinned { position: static; box-shadow: none; }
+  @media (max-height: 760px) { #pvCard { position: static; box-shadow: none; } }          /* too short a window to spare the room */
+  .pvHead { gap: 14px; margin-bottom: 10px; }
+  .pvHead .seg { margin-left: 4px; }
+  label.check.pinLbl { margin-left: auto; align-self: center; padding: 0; font-size: 12px; color: var(--muted); }
+  .layoutBar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 26px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .layoutBar .grp { display: flex; align-items: center; gap: 8px; }
+  .layoutBar .lbl { color: var(--muted); font-size: 12px; }
+  .layoutBar input[type=number] { width: 78px; padding: 6px 8px; }
+  .layoutBar input[type=range] { width: 130px; }
+  .layoutBar label.check { padding: 0; align-self: center; }
+  .layoutBar button { padding: 5px 10px; font-size: 12px; }
+  details.pvHelp { margin-top: 8px; }
+  details.pvHelp summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details.pvHelp .muted { margin-top: 6px; }
   .agrid { display: grid; grid-template-columns: repeat(3, 26px); gap: 3px; }
   .agrid button { width: 26px; height: 22px; padding: 0; border-radius: 5px; }
   .agrid button.on { background: var(--accent); border-color: var(--accent); }
@@ -114,6 +141,7 @@
 </aside>
 
 <main>
+  <div id="colA">
   <div class="card" id="updBanner" hidden style="border-color:var(--accent)">
     <div class="row" style="justify-content:space-between">
       <div><b id="updTitle"></b><div class="muted">A newer version is out. Nothing is installed for you: download it from the release page and unzip it over the old folder.</div></div>
@@ -151,32 +179,32 @@
     </div>
   </div>
 
-  <div class="card">
-    <h2>OBS Browser Source size</h2>
-    <div class="row">
-      <label class="f">Width<input type="number" id="srcW" min="100" max="8000"></label>
-      <label class="f">Height<input type="number" id="srcH" min="50" max="8000"></label>
-      <button id="useLargest">Use largest</button>
-      <button id="useThis">Use this preset's size</button>
-    </div>
-    <div class="muted" id="sizeInfo" style="margin-top:10px"></div>
-    <div class="muted" style="margin-top:8px">Type the width and height into your Browser Source's properties, then move and resize the source with OBS's handles as usual.
-      The overlay is pinned inside the source by the <b>Position</b> setting below, so switching presets never shifts it. A tight size gives a tight red box in OBS;
-      a bigger source (e.g. 1920×1080) lets you pin to a corner. To make it bigger, use the <b>Size</b> slider here rather than stretching the source in OBS, which blurs it.
-      The preview below is drawn at this size; the dashed line is the source's edge.</div>
   </div>
 
-  <div class="card">
-    <h2>Preview</h2>
-    <div class="row" style="margin-bottom:10px">
-      <span class="muted">Background</span>
+  <div class="card" id="pvCard">
+    <div class="row pvHead">
+      <h2 style="margin:0">Preview &amp; layout</h2>
       <div class="seg" id="bgSeg"><button data-bg="dark" class="on">Dark</button><button data-bg="check">Checker</button><button data-bg="green">Green</button></div>
-      <span class="muted">The preview reacts to your real input. <b>Drag the right edge of a key to resize it</b> (the rest of the overlay moves to fit); double-click an edge to reset that key. With <b>Free layout</b> on (Position &amp; size), drag the keyboard, mouse or a controller to move it.</span>
+      <label class="check pinLbl" title="Keeps the preview at the top of the window while you scroll through the settings"><input type="checkbox" id="pinPreview"> Keep in view while scrolling</label>
     </div>
     <div id="pvbox" class="dark"><iframe id="pv" src="/?draft=1" title="preview"></iframe></div>
     <iframe id="mf" src="/?draft=1&static=1" title="measure" aria-hidden="true" tabindex="-1"></iframe>
+    <div class="layoutBar">
+      <div class="grp"><span class="lbl">Position</span><div class="agrid" id="agrid" title="Where the overlay sits inside the OBS Browser Source"></div></div>
+      <div class="grp"><span class="lbl">Size</span><input type="range" id="scale" min="0.25" max="4" step="0.05"><span class="val" id="scaleV"></span></div>
+      <div class="grp"><label class="check" title="Arrange the pieces yourself: drag the keyboard, mouse and controllers in the preview. They snap to each other's edges."><input type="checkbox" id="freeLayout"> Free layout</label><button type="button" id="layoutReset" title="Put everything back where the row had it">Reset</button></div>
+      <div class="grp"><span class="lbl">OBS source</span><input type="number" id="srcW" min="100" max="8000" aria-label="Width"><span class="lbl">&times;</span><input type="number" id="srcH" min="50" max="8000" aria-label="Height"><button type="button" id="useLargest">Largest</button><button type="button" id="useThis" title="Use this preset's size">This preset</button></div>
+    </div>
+    <div class="muted" id="sizeInfo" style="margin-top:10px"></div>
+    <details class="pvHelp"><summary>How these work</summary>
+      <div class="muted">The preview reacts to your real input and is drawn at the OBS source size, with a dashed line at the source's edge. <b>Drag the right edge of a key to resize it</b> (the rest of the overlay moves to fit); double-click an edge to reset that key.
+        With <b>Free layout</b> on, drag the keyboard, mouse or a controller to move it; they snap to each other's edges and middles, and Reset puts them back in a row.
+        Type the source's width and height into your OBS Browser Source's properties, then move and resize the source with OBS's handles as usual. The overlay is pinned inside the source by <b>Position</b>, so switching presets never shifts it.
+        A tight size gives a tight red box in OBS; a bigger source (for example 1920&times;1080) lets you pin to a corner. To make the overlay bigger, use <b>Size</b> rather than stretching the source in OBS, which blurs it.</div>
+    </details>
   </div>
 
+  <div id="colB">
   <div class="card">
     <h2>Keyboard</h2>
     <div class="row">
@@ -190,7 +218,7 @@
       <span class="muted">Adds the numpad to the right. Numpad digits only light while NumLock is on.</span>
     </div>
     <div class="row" id="chips" style="margin-top:12px"></div>
-    <div id="editor"></div>
+    <div id="edWrap"><div id="editor"></div></div>
   </div>
 
   <div class="sectionNote">Settings apply to the selected preset, except the ones tagged <span class="scope">all presets</span>. Click a tag to switch that setting between all presets and just this preset.</div>
@@ -247,19 +275,6 @@
     </div>
 
     <div class="card">
-      <h2>Position &amp; size</h2>
-      <div class="stack">
-        <div class="setting"><span class="name">Position in source<small>Where the overlay sits inside the OBS Browser Source.</small></span>
-          <span class="ctl"><div class="agrid" id="agrid"></div></span></div>
-        <label class="setting"><span class="name">Free layout<small>Arrange the pieces yourself: turn this on, then drag the keyboard, mouse and controllers around in the preview. They snap to each other's edges.</small></span>
-          <span class="ctl"><button type="button" id="layoutReset" title="Put everything back where the row had it">Reset</button><input type="checkbox" id="freeLayout"></span></label>
-        <label class="setting"><span class="name">Size<small>Scales the overlay and keeps it sharp. Better than stretching the source in OBS.</small></span>
-          <span class="ctl"><input type="range" id="scale" min="0.25" max="4" step="0.05"><span class="val" id="scaleV"></span></span></label>
-      </div>
-    </div>
-
-
-    <div class="card">
       <h2>About</h2>
       <div class="stack">
         <div class="setting"><span class="name">Version<small id="updState">Checking…</small></span>
@@ -269,6 +284,7 @@
       </div>
     </div>
 
+  </div>
   </div>
 </main>
 
@@ -459,7 +475,17 @@ function setVisible(set) { cur.keyboard.keys = [...set].sort((a, b) => a - b); c
 function renderEditor() {
   KB.render($('editor'), { visible: cur.keyboard.mode === 'off' ? new Set() : visibleSet(), editor: true, sizes: cur.keyboard.sizes, numpad: !!cur.keyboard.numpad });
   if (resetChip) resetChip.hidden = !Object.keys(cur.keyboard.sizes || {}).length;
+  fitEditor();
 }
+// The key picker is drawn at its natural size (set by KB.render). When its card is narrower than that (a narrow window, or the numpad switched on) it is
+// scaled down to fit instead of sticking out of the card; the keys can still be clicked and painted as before.
+function fitEditor() {
+  const ed = $('editor'), wrap = $('edWrap'), w = parseFloat(ed.style.width) || 0;
+  const s = w > 0 ? Math.min(1, wrap.clientWidth / (w + 6)) : 1;
+  ed.style.transform = s < 1 ? `scale(${s})` : '';
+  wrap.style.height = s < 1 ? Math.ceil(ed.offsetHeight * s) + 'px' : '';
+}
+new ResizeObserver(fitEditor).observe($('edWrap'));
 // Click a key to toggle; hold the button and drag across keys to paint them to the same state.
 let paint = null, lastPt = null;
 $('editor').addEventListener('pointerdown', e => {
@@ -644,12 +670,26 @@ $('btnLive').onclick = () => flushThen(async () => {
 function sendPreview() { const w = $('pv').contentWindow; if (w) w.postMessage({ type: 'cfg', preset: cur, settings }, location.origin); }
 $('pv').addEventListener('load', sendPreview);
 // The preview iframe is laid out at a fixed logical width and scaled to fit the card.
+// While the card is kept in view it may use about a third of the window's height, so the settings below it still have room.
+const pinned = () => $('pinPreview').checked && matchMedia('(min-height: 761px)').matches;
 function fitPreview() {
-  const box = $('pvbox'), [W, H] = srcSize(), s = Math.min(1, box.clientWidth / W);
+  const box = $('pvbox'), [W, H] = srcSize();
+  const side = matchMedia('(min-width: 1750px)').matches;                        // the preview has a column of its own: it can be taller
+  const cap = pinned() ? Math.max(150, side ? innerHeight - 340 : Math.round(innerHeight * 0.34)) : Infinity;
+  const s = Math.min(1, box.clientWidth / W, cap / H);
   const pv = $('pv');
   pv.style.width = W + 'px'; pv.style.height = H + 'px'; pv.style.transform = `scale(${s})`;
+  pv.style.left = Math.max(0, (box.clientWidth - W * s) / 2) + 'px';
   box.style.height = Math.max(60, H * s) + 'px';
 }
+let pinSaved = true;
+try { pinSaved = localStorage.getItem('pinPreview') !== '0'; } catch {}
+$('pinPreview').checked = pinSaved; $('pvCard').classList.toggle('unpinned', !pinSaved);
+$('pinPreview').onchange = e => {
+  $('pvCard').classList.toggle('unpinned', !e.target.checked);
+  try { localStorage.setItem('pinPreview', e.target.checked ? '1' : '0'); } catch {}
+  fitPreview();
+};
 addEventListener('resize', fitPreview); fitPreview();
 
 async function createPreset(base, name) {
