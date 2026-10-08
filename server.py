@@ -262,6 +262,28 @@ def _offscreen(x, y, width, height):
     return x < 0 or y < 0 or x >= width or y >= height
 
 
+def _xtest_absolute(samples, origin, width, height):
+    """Deltas if every sample is a cursor coordinate, and the cursor that ends on."""
+    prev = origin
+    deltas = []
+    for x, y in samples:
+        end = _clamp_screen(x, y, width, height)
+        if _offscreen(x, y, width, height):
+            deltas.append((0, 0))
+        else:
+            deltas.append((end[0] - prev[0], end[1] - prev[1]))
+        prev = end
+    return deltas, prev
+
+
+def _xtest_relative_end(samples, origin, width, height):
+    """Where the cursor ends if every sample is a delta."""
+    pos = origin
+    for x, y in samples:
+        pos = _clamp_screen(pos[0] + x, pos[1] + y, width, height)
+    return pos
+
+
 def _xtest_deltas(samples, origin, pointer, width, height):
     """Deltas for one batch of XTEST samples, and the cursor to remember.
 
@@ -279,21 +301,28 @@ def _xtest_deltas(samples, origin, pointer, width, height):
     that starts at `origin` and finishes on `pointer` is the one that happened;
     a coordinate is preferred when both readings fit, which is also what a
     relative move from the origin looks like, and both readings give the same
-    delta in that case. A batch that fits neither reading is sent through as
-    deltas, which is what a real relative move is.
+    delta in that case. One delta is returned per sample, including a long
+    drag: a coordinate batch is never summed by treating the positions as deltas.
     """
     px, py = int(round(pointer[0])), int(round(pointer[1]))
     ox, oy = int(round(origin[0])), int(round(origin[1]))
     if not samples:
         return [], (px, py)
-    if len(samples) > 12:
-        last = samples[-1]
-        end = _clamp_screen(last[0], last[1], width, height)
-        on_pointer = abs(last[0] - px) <= 0.5 and abs(last[1] - py) <= 0.5
-        clamped = _offscreen(last[0], last[1], width, height) and end == (px, py)
-        if on_pointer or clamped:
-            return [(px - ox, py - oy)], (px, py)
+    # A coordinate reading of the whole batch. Checked first, for any length:
+    # a drag of dozens of samples is all coordinates, and searching every mix
+    # of coordinate and delta is not possible once the batch is long. The
+    # per-sample deltas sum to the pointer movement. An off-screen sample
+    # (the corner clamp) contributes nothing.
+    absolute, abs_end = _xtest_absolute(samples, (ox, oy), width, height)
+    if abs_end == (px, py):
+        return absolute, (px, py)
+    if _xtest_relative_end(samples, (ox, oy), width, height) == (px, py):
         return [(x, y) for x, y in samples], (px, py)
+    if len(samples) > 12:
+        # Neither pure reading lands on the cursor. Passing the coordinates
+        # through as deltas is how a long drag turned into tens of thousands
+        # of pixels, so this batch contributes nothing rather than that.
+        return [(0, 0)] * len(samples), (px, py)
 
     chosen = []
 
@@ -432,6 +461,10 @@ def _select_linux_devices(display, root, xinput):
 # How often to look for keyboards and mice that were plugged in. Short enough
 # that a hotplug is noticed while keys are still being held.
 _DEVICE_SCAN_S = 1.5
+# A remote-desktop drag can queue far more than a dozen motion events before
+# this process reads them. They have to be classified together: the cursor
+# read afterwards is the cursor after every event still waiting.
+_EVENT_BATCH = 4096
 
 
 def _x_socket_ready(display, timeout):
@@ -462,6 +495,19 @@ def _shift_keycodes(display):
     return {code for code in mapping[0] if code}
 
 
+def _keycode_is_down(keymap, code):
+    """True when query_keymap()'s bit vector says this keycode is held."""
+    if code < 0 or code // 8 >= len(keymap):
+        return False
+    return bool(keymap[code // 8] & (1 << (code % 8)))
+
+
+def _shifts_held(display, shift_codes):
+    """Shift keycodes that are down right now. Left and right are separate bits."""
+    keymap = display.query_keymap()
+    return {code for code in shift_codes if _keycode_is_down(keymap, code)}
+
+
 def _linux_input_session(display, xinput, X):
     """Read one X connection until it drops. Raises ConnectionClosedError when the server goes away."""
     display.xinput_query_version()
@@ -474,7 +520,8 @@ def _linux_input_session(display, xinput, X):
     # is the live mask, so a Shift release already sitting in the queue would
     # otherwise change which keypad key the press maps to.
     mask = root.query_pointer().mask
-    mods = {"shift": bool(mask & X.ShiftMask), "numlock": bool(mask & num_mask)}
+    held_shifts = _shifts_held(display, shift_codes)
+    mods = {"shift": bool(held_shifts), "shifts": held_shifts, "numlock": bool(mask & num_mask)}
     # The cursor, for XTEST only. An absolute device is not seeded from the mouse:
     # its own first sample is the baseline.
     last = {}
@@ -521,38 +568,22 @@ def _linux_input_session(display, xinput, X):
                 origin = last.get(source, pointer)
                 deltas, new_origin = _xtest_deltas([(x, y) for _, x, y in items], origin, pointer, width, height)
                 last[source] = new_origin
+                # Every XTEST sample is consumed here. One that was left out used
+                # to be read as a relative delta, so a coordinate became a jump.
+                for index, _x, _y in items:
+                    xtest_at[index] = (0, 0)
                 for (index, _x, _y), (dx, dy) in zip(items, deltas):
                     xtest_at[index] = (dx, dy)
         for index, event in enumerate(events):
             if not selected:
                 return
-            evtype = getattr(event, "evtype", None)
-            if evtype == xinput.HierarchyChanged:
-                fresh = _linux_devices(display, root, xinput)
-                if fresh:
-                    root.xinput_select_events(fresh["masks"])
-                    display.flush()
-                remember(fresh)
-                continue
-            if index in xtest_at:
-                emit_motion(*xtest_at[index])
-                continue
-            data = getattr(event, "data", b"")
-            if evtype == xinput.RawMotion:
-                parsed = _parse_xi_raw_motion(data)
-                if not parsed:
-                    continue
-                source, x, y = parsed
-                if source in selected["absolute"]:
-                    dx, dy = _position_delta(source, x, y, last)
-                else:
-                    dx, dy = x, y
-                emit_motion(dx, dy)
-                continue
-            if evtype in (xinput.RawKeyPress, xinput.RawKeyRelease):
-                _dispatch_key(display, xinput, X, data, evtype, mods, shift_codes, numlock_code)
-            elif evtype in (xinput.RawButtonPress, xinput.RawButtonRelease):
-                _dispatch_button(data, evtype)
+            try:
+                _dispatch_one(display, root, xinput, X, event, index, xtest_at, selected, mods,
+                              shift_codes, numlock_code, last, emit_motion, remember)
+            except Exception as exc:  # noqa: BLE001 - one bad event must not stop capture
+                if type(exc).__name__ == "ConnectionClosedError":
+                    raise
+                print(f"[input] event dropped ({type(exc).__name__}: {exc})")
 
     while True:
         # Plugged-in keyboards and mice show up on this timer, including while
@@ -600,8 +631,10 @@ def _linux_input_session(display, xinput, X):
                         if prev_xy is None or abs(prev_xy[0] - px) > 2 or abs(prev_xy[1] - py) > 2:
                             last[source] = (px, py)
                     live = root.query_pointer().mask
+                    held = _shifts_held(display, shift_codes)
                     if not display.pending_events():
-                        mods["shift"] = bool(live & X.ShiftMask)
+                        mods["shifts"] = held
+                        mods["shift"] = bool(held)
                         mods["numlock"] = bool(live & num_mask)
                 continue
         if not selected:
@@ -611,17 +644,48 @@ def _linux_input_session(display, xinput, X):
                 display.next_event()
             continue
         events = [display.next_event()]
-        while len(events) < 64 and (display.pending_events() or _x_socket_ready(display, 0)):
+        while len(events) < _EVENT_BATCH and (display.pending_events() or _x_socket_ready(display, 0)):
             events.append(display.next_event())
         pointer = None
         if _batch_has_xtest(events, xinput, selected["xtest"]):
             # The cursor distinguishes an XTEST coordinate from an XTEST delta.
             # A real mouse never takes this round trip.
             pos = root.query_pointer()
-            while len(events) < 64 and display.pending_events():
+            while len(events) < _EVENT_BATCH and display.pending_events():
                 events.append(display.next_event())
             pointer = (pos.root_x, pos.root_y)
         dispatch(events, pointer)
+
+
+def _dispatch_one(display, root, xinput, X, event, index, xtest_at, selected, mods, shift_codes, numlock_code, last, emit_motion, remember):
+    """One raw event. The input loop catches a failure here so capture keeps running."""
+    evtype = getattr(event, "evtype", None)
+    if evtype == xinput.HierarchyChanged:
+        fresh = _linux_devices(display, root, xinput)
+        if fresh:
+            root.xinput_select_events(fresh["masks"])
+            display.flush()
+        remember(fresh)
+        return
+    if index in xtest_at:
+        emit_motion(*xtest_at[index])
+        return
+    data = getattr(event, "data", b"")
+    if evtype == xinput.RawMotion:
+        parsed = _parse_xi_raw_motion(data)
+        if not parsed or not selected:
+            return
+        source, x, y = parsed
+        if source in selected["absolute"]:
+            dx, dy = _position_delta(source, x, y, last)
+        else:
+            dx, dy = x, y
+        emit_motion(dx, dy)
+        return
+    if evtype in (xinput.RawKeyPress, xinput.RawKeyRelease):
+        _dispatch_key(display, xinput, X, data, evtype, mods, shift_codes, numlock_code)
+    elif evtype in (xinput.RawButtonPress, xinput.RawButtonRelease):
+        _dispatch_button(xinput, data, evtype)
 
 
 def _dispatch_key(display, xinput, X, data, evtype, mods, shift_codes, numlock_code):
@@ -647,12 +711,18 @@ def _dispatch_key(display, xinput, X, data, evtype, mods, shift_codes, numlock_c
                 _down_keys.discard(vk)
                 hub.emit({"k": [vk, 0]})
         if detail in shift_codes:
-            mods["shift"] = down
+            # Left and right are tracked on their own. Releasing one must not
+            # clear Shift while the other is still held.
+            if down:
+                mods["shifts"].add(detail)
+            else:
+                mods["shifts"].discard(detail)
+            mods["shift"] = bool(mods["shifts"])
         elif numlock_code and detail == numlock_code and down:
             mods["numlock"] = not mods["numlock"]
 
 
-def _dispatch_button(data, evtype):
+def _dispatch_button(xinput, data, evtype):
     detail = _xi_detail(data)
     if detail in _XI_SCROLL:
         if evtype == xinput.RawButtonPress:
