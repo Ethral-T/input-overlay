@@ -952,10 +952,13 @@ def _load_sdl():
 
 
 # evdev button code -> XInput bit. The kernel's gamepad spec names the diamond by
-# compass point (south is A / Cross, west is X / Square), which is not the order
-# every driver uses for js* indices. Xbox's xpad driver, for example, lists X
-# before Y and has no digital-trigger buttons in the middle, so a fixed index
-# table swaps X/Y and shifts Back onto LT.
+# compass point (south is A / Cross, north is Y / Triangle, west is X / Square).
+# PlayStation and Switch pads send those compass codes. BTN_X (0x133) is the same
+# number as BTN_NORTH, and BTN_Y (0x134) is BTN_WEST, so an Xbox pad — whose xpad
+# driver reports the physical X button as BTN_X and physical Y as BTN_Y — lands
+# swapped unless the name says to exchange those two codes. A fixed index table
+# used to swap X/Y for every pad and shift Back onto LT; the map ioctl fixed the
+# index, and the name check below fixes the Xbox labels.
 _JS_BTN = {
     0x130: 0x1000, 0x131: 0x2000, 0x133: 0x8000, 0x134: 0x4000,   # south east north west
     0x136: 0x0100, 0x137: 0x0200,                                 # LB RB
@@ -967,9 +970,11 @@ _JS_TRIG = {0x138: "lt", 0x139: "rt"}                            # digital trigg
 # ABS_X Y Z RX RY RZ, hat X, hat Y. Used only if the device has no axis map.
 _JS_FALLBACK_AXES = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x10, 0x11)
 _JS_FALLBACK_BTNS = (0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x138, 0x139, 0x13A, 0x13B, 0x13C, 0x13D, 0x13E)
-# JSIOCGAXMAP is __u8[64], JSIOCGBTNMAP is __u16[512]. Numbers from linux/joystick.h.
+# JSIOCGAXMAP is __u8[64], JSIOCGBTNMAP is __u16[512], JSIOCGNAME(128) is the
+# identifier string. Numbers from linux/joystick.h (_IOC_READ, 'j', ...).
 _JSIOCGAXMAP = 0x80406A32
 _JSIOCGBTNMAP = 0x84006A34
+_JSIOCGNAME = 0x80806A13
 
 
 def _js_trigger(value):
@@ -979,10 +984,36 @@ def _js_trigger(value):
     return max(0, min(255, int(value) * 255 // 32767))
 
 
-def _js_apply_button(state, code, down):
+def _js_swaps_xy(name):
+    """True when this pad's physical X is BTN_X and its physical Y is BTN_Y.
+
+    That is the xpad labelling. DualSense and Switch follow the compass spec
+    (Square is west, Triangle is north), and their names do not match here, so
+    they keep 0x133 as Y and 0x134 as X.
+    """
+    text = (name or "").casefold()
+    return "xbox" in text or "x-box" in text or "xpad" in text
+
+
+def _js_device_name(fd):
+    """Identifier from JSIOCGNAME, or '' when the ioctl is missing."""
+    import fcntl
+    buf = bytearray(128)
+    try:
+        fcntl.ioctl(fd, _JSIOCGNAME, buf)
+    except OSError:
+        return ""
+    return buf.split(b"\x00", 1)[0].decode("utf-8", "replace")
+
+
+def _js_apply_button(state, code, down, swap_xy=False):
     """Apply one evdev button code to the overlay state. Unknown codes are ignored."""
     if not code:
         return
+    if swap_xy and code == 0x133:
+        code = 0x134
+    elif swap_xy and code == 0x134:
+        code = 0x133
     trigger = _JS_TRIG.get(code)
     if trigger:
         state[trigger] = 255 if down else 0
@@ -1058,9 +1089,11 @@ class LinuxJsBackend:
             raise OSError(f"cannot read {paths[slot]}: {e}") from e
         self.path = paths[slot]
         self.axes, self.buttons = _js_device_maps(self.fd)
-        self.state = {"c": 1, "b": 0, "x": 0, "r": 0, "t": [], "ty": 0, "nm": paths[slot].name,
+        self.pad_name = _js_device_name(self.fd) or paths[slot].name
+        self.swap_xy = _js_swaps_xy(self.pad_name)
+        self.state = {"c": 1, "b": 0, "x": 0, "r": 0, "t": [], "ty": 0, "nm": self.pad_name,
                       "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0}
-        print(f"[pad] {self.name}: {paths[slot]}")
+        print(f"[pad] {self.name}: {self.pad_name}")
 
     def poll(self):
         while True:
@@ -1081,7 +1114,7 @@ class LinuxJsBackend:
     def _button(self, number, value):
         if number >= len(self.buttons):
             return
-        _js_apply_button(self.state, self.buttons[number], 1 if value else 0)
+        _js_apply_button(self.state, self.buttons[number], 1 if value else 0, self.swap_xy)
 
     def _axis(self, number, value):
         if number >= len(self.axes):
