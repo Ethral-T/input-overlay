@@ -24,7 +24,12 @@ Windows or your antivirus may warn about the download. That is a false positive;
 
 ### Linux
 
-The packaged program is the Windows `.exe`. On Linux you run the server from a checkout. Python 3.12 and 3.13 both work.
+The packaged program is the Windows `.exe`. On Linux you run the server from a checkout of the Linux branch. Python 3.12 and 3.13 both work.
+
+```
+git clone -b cursor/linux-input-4e61 https://github.com/Ethral-T/input-overlay.git
+cd input-overlay
+```
 
 Input capture is **X11 only**. A Wayland session, which is the default on Ubuntu and Fedora, does not give this program keystrokes or mouse input from native Wayland applications. Starting the server there still serves the overlay page, but keys pressed in a Wayland app never arrive. Use an X11 session (`DISPLAY` set, and not a Wayland compositor) for capture.
 
@@ -32,7 +37,7 @@ Install the system packages, then the Python packages from `requirements-linux.l
 
 ```
 sudo apt install python3-venv python3-pip libusb-1.0-0 xclip xdg-utils
-python3 -m venv .venv
+python3 -m venv --system-site-packages .venv
 .venv/bin/pip install --require-hashes -r requirements-linux.lock
 .venv/bin/python server.py
 ```
@@ -45,11 +50,13 @@ The tray icon (`python app.py`) only has a menu when PyGObject and AppIndicator 
 sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
 ```
 
-`gir1.2-appindicator3-0.1` is the older package name, if the Ayatana one is not in your distro. On GNOME the icon stays hidden until the AppIndicator (KStatusNotifierItem) extension is enabled; Ubuntu ships it as `gnome-shell-extension-appindicator`. Without these packages the server still runs, and the tray prints that Quit, Copy URL and Start at login are unavailable.
+`gir1.2-appindicator3-0.1` is the older package name, if the Ayatana one is not in your distro. On GNOME the icon stays hidden until the AppIndicator (KStatusNotifierItem) extension is enabled; Ubuntu ships it as `gnome-shell-extension-appindicator`. Those packages are installed for the system Python. A virtual environment created with plain `python3 -m venv .venv` cannot import them, so the menu stays missing even though apt installed them. `--system-site-packages` (in the command above) lets the environment see them, and the AppIndicator menu appears. Without these packages the server still runs, and the tray prints that Quit, Copy URL and Start at login are unavailable.
 
 Copy URL uses `wl-copy` only when `WAYLAND_DISPLAY` is set. On X11 it uses `xclip` or `xsel`, including when `wl-copy` happens to be installed.
 
-Settings are stored in `$XDG_CONFIG_HOME/InputOverlay` (or `~/.config/InputOverlay`). If `~/InputOverlay/config.json` or `~/InputOverlay/themes` is already there, that directory is kept so an older install is not orphaned. `INPUT_OVERLAY_HOME` overrides the location. The log is `log.txt` in the same directory. Start at login writes `$XDG_CONFIG_HOME/autostart/input-overlay.desktop` (`~/.config/autostart` when that variable is unset). An entry with `Hidden=true` is treated as off.
+Settings are stored in `$XDG_CONFIG_HOME/InputOverlay` (or `~/.config/InputOverlay`). If `~/InputOverlay/config.json` or `~/InputOverlay/themes` is already there, that directory is kept so an older install is not orphaned. `INPUT_OVERLAY_HOME` overrides the location. Start at login writes `$XDG_CONFIG_HOME/autostart/input-overlay.desktop` (`~/.config/autostart` when that variable is unset). An entry with `Hidden=true` is treated as off.
+
+`python server.py` and `python app.py` from a terminal print to that terminal. `log.txt` in the config directory is written only when there is no console (`stdout` or `stderr` is missing) or the app is the packaged program. A Linux terminal session does not create `log.txt`.
 
 The server listens on `127.0.0.1` and does not run as root. Gamepads, the GameCube adapter and the Switch 2 Pro need the logged-in user to be allowed to open the device node. Do not make the nodes world-writable (`MODE="0666"`) and do not start the server with sudo. A udev rule with `TAG+="uaccess"` lets logind grant them to the active session. Create `/etc/udev/rules.d/70-input-overlay.rules`:
 
@@ -78,7 +85,7 @@ instantly, with no reload. To pin a source to one preset (for example a controll
 `http://127.0.0.1:8765/?preset=<name>`.
 
 The tray menu lets you open settings, change the active preset, copy the OBS URL (or one pinned to a preset), open the themes folder, start with Windows (or at login on Linux), and quit.
-Presets are stored in `%APPDATA%\InputOverlay\config.json` on Windows. On Linux they are in `~/.config/InputOverlay` unless an older `~/InputOverlay` is already present; see [Linux](#linux). A log, `log.txt`, sits next to the config.
+Presets are stored in `%APPDATA%\InputOverlay\config.json` on Windows. On Linux they are in `~/.config/InputOverlay` unless an older `~/InputOverlay` is already present; see [Linux](#linux). On Windows the log is `log.txt` next to the config. On Linux that file is written only when the process has no console, or when it is packaged; a terminal run prints to the terminal instead.
 
 ### Position and size
 
