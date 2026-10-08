@@ -9,12 +9,17 @@ at github.com/ndeadly/switch2_controller_research):
     Windows' own HID calls read these, so other programs can read them too.
 The sticks are calibrated from the controller's flash memory, the same way SDL does it.
 
-Needs lib/libusb-1.0.dll (libusb, LGPL-2.1+; see lib/libusb-NOTICE.txt). Over USB only: Bluetooth is not supported.
+Needs lib/libusb-1.0.dll on Windows, or the system libusb plus hidraw on Linux (libusb, LGPL-2.1+; see lib/libusb-NOTICE.txt). Over USB only: Bluetooth is not supported.
 """
 import ctypes
+import os
+import select
+import sys
 import time
 from ctypes import wintypes as wt
 from pathlib import Path
+
+from gcadapter import claim, load_libusb
 
 BASE = Path(__file__).resolve().parent
 VID, PID = 0x057E, 0x2069
@@ -86,6 +91,21 @@ class _HIDP_CAPS(ctypes.Structure):
                 ("NumberFeatureButtonCaps", wt.USHORT), ("NumberFeatureValueCaps", wt.USHORT), ("NumberFeatureDataIndices", wt.USHORT)]
 
 
+def _linux_hidraw():
+    """hidraw node for a Switch 2 Pro (057e:2069), or None when it isn't there."""
+    root = Path("/sys/class/hidraw")
+    if not root.is_dir():
+        return None
+    for node in root.iterdir():
+        try:
+            text = (node / "device" / "uevent").read_text(errors="replace").upper()
+        except OSError:
+            continue
+        if "057E" in text and "2069" in text:
+            return Path("/dev") / node.name
+    return None
+
+
 def _win():
     k32, sa, hid = ctypes.WinDLL("kernel32", use_last_error=True), ctypes.WinDLL("setupapi", use_last_error=True), ctypes.WinDLL("hid")
     V = ctypes.c_void_p
@@ -146,10 +166,7 @@ class Switch2ProBackend:
     name = "Switch 2 Pro (libusb + HID)"
 
     def __init__(self, index=None):
-        dll = BASE / "lib" / "libusb-1.0.dll"
-        if not dll.exists():
-            raise OSError(f"{dll} not found")
-        self.lib = lib = ctypes.CDLL(str(dll))
+        self.lib = lib = load_libusb()
         V = ctypes.c_void_p
         lib.libusb_init.argtypes = [ctypes.POINTER(V)]
         lib.libusb_open_device_with_vid_pid.argtypes = [V, ctypes.c_uint16, ctypes.c_uint16]
@@ -165,9 +182,12 @@ class Switch2ProBackend:
         self.ctx = V()
         if lib.libusb_init(ctypes.byref(self.ctx)) != 0:
             raise OSError("libusb_init failed")
-        self.k32, self.sa, self.hid = _win()
+        self.k32 = self.sa = self.hid = None
+        if sys.platform == "win32":
+            self.k32, self.sa, self.hid = _win()
         self.usb = None                          # libusb device handle (kept so the controller stays started)
-        self.fh = None                           # HID file handle
+        self.fh = None                           # Windows HID file handle
+        self.fd = None                           # Linux hidraw fd
         self.ev = None
         self.ov = _OVERLAPPED()
         self.reportlen = 64
@@ -255,14 +275,14 @@ class Switch2ProBackend:
         if now < self.next_try:
             return False
         self.next_try = now + RETRY
-        path = _find_hid_path(self.sa, self.hid)
-        if not path:
+        path = _find_hid_path(self.sa, self.hid) if sys.platform == "win32" else None
+        if sys.platform == "win32" and not path:
             return False
         h = self.lib.libusb_open_device_with_vid_pid(self.ctx, VID, PID)
         if not h:
             return False
         eps = self._endpoints(h)
-        if not eps or self.lib.libusb_claim_interface(h, 1) != 0:
+        if not eps or not claim(self.lib, h, 1):
             self.lib.libusb_close(h)
             return False
         self.usb, (self.out_ep, self.in_ep) = h, eps
@@ -279,6 +299,21 @@ class Switch2ProBackend:
         if not ok:
             self._close()
             return False
+        if sys.platform != "win32":
+            hid = _linux_hidraw()
+            if hid is None:
+                self._close()
+                return False
+            try:
+                self.fd = os.open(hid, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError as e:
+                print(f"[pad] {self.name}: cannot read {hid}: {e}")
+                self._close()
+                return False
+            self.reportlen = 64
+            print(f"[pad] {self.name}: controller started (hidraw {hid.name}, "
+                  f"sticks {'calibrated' if self.lcal and self.rcal else 'uncalibrated'})")
+            return True
         bad = ctypes.c_void_p(-1).value
         fh = self.k32.CreateFileW(path, 0xC0000000, 3, None, 3, 0x40000000, None)   # read+write, shared, OPEN_EXISTING, OVERLAPPED
         if not fh or fh == bad:
@@ -301,10 +336,13 @@ class Switch2ProBackend:
         return True
 
     def _close(self):
-        if self.fh:
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+        if self.k32 and self.fh:
             self.k32.CancelIo(self.fh)
             self.k32.CloseHandle(self.fh)
-        if self.ev:
+        if self.k32 and self.ev:
             self.k32.CloseHandle(self.ev)
         if self.usb:
             self.lib.libusb_release_interface(self.usb, 1)
@@ -316,6 +354,17 @@ class Switch2ProBackend:
     # -- reading
     def _read(self, timeout_ms):
         """One input report (bytes) or None on timeout; raises OSError when the controller has gone."""
+        if self.fd is not None:
+            ready, _, _ = select.select([self.fd], [], [], timeout_ms / 1000)
+            if not ready:
+                return None
+            try:
+                data = os.read(self.fd, max(self.reportlen, 64))
+            except BlockingIOError:
+                return None
+            if not data:
+                raise OSError("HID read failed")
+            return data
         if not self.pending:
             self.k32.ResetEvent(self.ev)
             self.ov = _OVERLAPPED()
@@ -344,7 +393,7 @@ class Switch2ProBackend:
         return int(max(-32767, min(32767, (v - uncal_centre) * 16)))
 
     def poll(self):
-        if not self.fh and not self._start():
+        if self.fh is None and self.fd is None and not self._start():
             return None
         try:
             data = self._read(25)

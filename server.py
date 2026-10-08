@@ -1,6 +1,6 @@
 """Input Overlay server.
 
-Captures global keyboard / mouse / XInput-controller input on Windows and
+Captures global keyboard, mouse and controller input on Windows and Linux and
 streams it over a WebSocket to the overlay page (overlay/index.html), which is
 meant to be loaded as an OBS Browser Source.
 
@@ -19,6 +19,8 @@ import os
 import re
 import secrets
 import signal
+import struct
+import subprocess
 import sys
 import threading
 import time
@@ -27,7 +29,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from aiohttp import web, WSMsgType
-from pynput import keyboard, mouse
 
 import config
 import themes
@@ -72,14 +73,59 @@ class Hub:
 hub = Hub()
 
 
+# pynput is the Windows hook. On Linux its XRecord listener only sees keys this
+# process injects, so the Linux path uses XInput2 instead (see linux_input_thread).
+if sys.platform == "win32":
+    from pynput import keyboard, mouse
+
+
 # --------------------------------------------------------------------------
-# Keyboard + mouse buttons/scroll (pynput low-level hooks)
+# Keyboard + mouse buttons/scroll
 # --------------------------------------------------------------------------
+# X11 keysyms for the keys whose Windows virtual-key code is not the ASCII value.
+# Letters and digits use the character (Windows VK for "A" is 65, not the keysym).
+_XSYM_VK = {
+    0xFF08: 8, 0xFF09: 9, 0xFF0D: 13, 0xFF1B: 27, 0xFF13: 19, 0xFF14: 145,
+    0xFF50: 36, 0xFF51: 37, 0xFF52: 38, 0xFF53: 39, 0xFF54: 40, 0xFF55: 33, 0xFF56: 34, 0xFF57: 35,
+    0xFF61: 44, 0xFF63: 45, 0xFF67: 93, 0xFF7F: 144, 0xFFFF: 46,
+    0xFFE1: 160, 0xFFE2: 161, 0xFFE3: 162, 0xFFE4: 163, 0xFFE5: 20,
+    0xFFE9: 164, 0xFFEA: 165, 0xFE03: 165, 0xFFEB: 91, 0xFFEC: 92,
+}
+_XSYM_VK.update({0xFFBE + i: 112 + i for i in range(12)})   # F1..F12
+_CHAR_VK = {
+    " ": 32, "`": 192, "-": 189, "=": 187, "[": 219, "]": 221, "\\": 220,
+    ";": 186, "'": 222, ",": 188, ".": 190, "/": 191,
+}
+
+
+def _linux_vk(keysym, char):
+    """Windows virtual-key code for an X11 keysym / typed character."""
+    if char and len(char) == 1:
+        if "a" <= char <= "z" or "A" <= char <= "Z":
+            return ord(char.upper())
+        if "0" <= char <= "9":
+            return ord(char)
+        if char in _CHAR_VK:
+            return _CHAR_VK[char]
+    if not isinstance(keysym, int):
+        return None
+    if keysym in _XSYM_VK:
+        return _XSYM_VK[keysym]
+    if 0x20 <= keysym <= 0x7E:
+        return _linux_vk(None, chr(keysym))
+    return None
+
+
 def vk_of(key):
     vk = getattr(key, "vk", None)
     if vk is None:
         vk = getattr(getattr(key, "value", None), "vk", None)
-    return vk
+    if sys.platform == "win32":
+        return vk
+    char = getattr(key, "char", None)
+    if char is None:
+        char = getattr(getattr(key, "value", None), "char", None)
+    return _linux_vk(vk, char)
 
 
 _down_keys = set()
@@ -113,7 +159,161 @@ def on_scroll(x, y, dx, dy):
 # Raw mouse movement (Windows Raw Input) - keeps working when a game locks and
 # recentres the cursor, unlike reading cursor position.
 # --------------------------------------------------------------------------
+def _parse_xi_raw_motion(data):
+    """(sourceid, x, y) from an XI_RawMotion generic-event payload, or None.
+
+    `data` is the event bytes after the 10-byte generic-event header. Axes 0 and 1
+    are the pointer's X and Y. The raw (unaccelerated) values are used.
+    """
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 22:
+        return None
+    _device, _time, _detail, source, vlen, _flags = struct.unpack_from("<HIIHHI", data, 0)
+    off = 22
+    if vlen < 1 or len(data) < off + 4 * vlen:
+        return None
+    mask = 0
+    for i in range(vlen):
+        mask |= struct.unpack_from("<I", data, off)[0] << (32 * i)
+        off += 4
+    n = mask.bit_count()
+    if n == 0 or len(data) < off + n * 16:
+        return None
+    raw_at = off + n * 8                                 # axis values, then the raw values
+
+    def fp3232(o):
+        integ, frac = struct.unpack_from("<iI", data, o)
+        return integ + frac / 4294967296
+
+    vals = {}
+    bit_i = 0
+    for bit in range(vlen * 32):
+        if mask & (1 << bit):
+            vals[bit] = fp3232(raw_at + bit_i * 8)
+            bit_i += 1
+            if bit_i >= n:
+                break
+    if 0 not in vals or 1 not in vals:
+        return None
+    return source, vals[0], vals[1]
+
+
+def _pointer_delta(source, x, y, pointer_x, pointer_y, last):
+    """Pixels moved since the previous sample from this device.
+
+    A relative mouse reports a delta. Virtual pointers (XTEST, VNC) are often marked
+    relative but report the cursor position; a sample that lands on the pointer is
+    that case, and the movement is the change in position.
+    """
+    on_pointer = abs(x - pointer_x) <= 1.5 and abs(y - pointer_y) <= 1.5
+    prev = last.get(source)
+    if on_pointer:
+        last[source] = (x, y)
+        if prev is None:
+            return 0, 0
+        return x - prev[0], y - prev[1]
+    return x, y
+
+
+# XInput2 button numbers. 4/5 (and 6/7) are the scroll wheel, not real buttons.
+_XI_BUTTONS = {1: "left", 2: "middle", 3: "right", 8: "x1", 9: "x2"}
+_XI_SCROLL = {4: (0, 1), 5: (0, -1), 6: (-1, 0), 7: (1, 0)}
+
+
+def _xi_detail(data):
+    """Keycode or button number from an XI raw-event payload, or None."""
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 10:
+        return None
+    return struct.unpack_from("<I", data, 6)[0]
+
+
+def linux_input_thread():
+    """Keyboard, buttons, scroll and raw pointer motion via XInput2.
+
+    This is the Linux counterpart of the Windows low-level hooks and Raw Input.
+    Slave devices are selected so injected input (XTest, the VNC keyboard) is
+    included; a master-only selection would miss it.
+    """
+    try:
+        from Xlib import X, display
+        from Xlib.ext import xinput
+    except Exception as e:  # noqa: BLE001 - python-xlib is the Linux extra
+        print(f"[input] XInput unavailable; keyboard and mouse disabled ({e})")
+        return
+    try:
+        d = display.Display()
+        d.xinput_query_version()
+    except Exception as e:  # noqa: BLE001
+        print(f"[input] no X display; keyboard and mouse disabled ({e})")
+        return
+    root = d.screen().root
+    info = d.xinput_query_device(xinput.AllDevices)
+    pointers, masks = [], []
+    pointer_mask = xinput.RawMotionMask | xinput.RawButtonPressMask | xinput.RawButtonReleaseMask
+    key_mask = xinput.RawKeyPressMask | xinput.RawKeyReleaseMask
+    for dev in info.devices:
+        if dev.use == xinput.SlavePointer:
+            pointers.append(dev.deviceid)
+            masks.append((dev.deviceid, pointer_mask))
+        elif dev.use == xinput.SlaveKeyboard:
+            masks.append((dev.deviceid, key_mask))
+    if not masks:
+        print("[input] no input devices; keyboard and mouse disabled")
+        return
+    try:
+        root.xinput_select_events(masks)
+        d.flush()
+    except Exception as e:  # noqa: BLE001
+        print(f"[input] could not select raw events; keyboard and mouse disabled ({e})")
+        return
+    print(f"[input] XInput2 ({len(masks) - len(pointers)} keyboard(s), {len(pointers)} pointer(s))")
+    pos = root.query_pointer()
+    # Seed absolute-style pointers so the first sample has a position to diff against.
+    last = {source: (pos.root_x, pos.root_y) for source in pointers}
+    while True:
+        event = d.next_event()
+        evtype = getattr(event, "evtype", None)
+        data = getattr(event, "data", b"")
+        if evtype == xinput.RawMotion:
+            parsed = _parse_xi_raw_motion(data)
+            if not parsed:
+                continue
+            source, x, y = parsed
+            pos = root.query_pointer()
+            dx, dy = _pointer_delta(source, x, y, pos.root_x, pos.root_y, last)
+            if dx or dy:
+                hub.add_motion(int(round(dx)), int(round(dy)))
+        elif evtype in (xinput.RawKeyPress, xinput.RawKeyRelease):
+            detail = _xi_detail(data)
+            if detail is None:
+                continue
+            keysym = d.keycode_to_keysym(detail, 0)
+            if keysym in (None, X.NoSymbol):
+                continue
+            vk = _linux_vk(keysym, None)
+            if vk is None:
+                continue
+            down = evtype == xinput.RawKeyPress
+            if down:
+                if vk in _down_keys:                 # ignore auto-repeat
+                    continue
+                _down_keys.add(vk)
+            else:
+                _down_keys.discard(vk)
+            hub.emit({"k": [vk, 1 if down else 0]})
+        elif evtype in (xinput.RawButtonPress, xinput.RawButtonRelease):
+            detail = _xi_detail(data)
+            if detail in _XI_SCROLL:
+                if evtype == xinput.RawButtonPress:
+                    hub.emit({"s": list(_XI_SCROLL[detail])})
+                continue
+            name = _XI_BUTTONS.get(detail)
+            if name:
+                hub.emit({"m": [name, 1 if evtype == xinput.RawButtonPress else 0]})
+
+
 def raw_mouse_thread():
+    if sys.platform != "win32":
+        return
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     LRESULT = ctypes.c_ssize_t
@@ -220,10 +420,7 @@ class SdlBackend:
                9: 0x100, 10: 0x200, 11: 0x1, 12: 0x2, 13: 0x4, 14: 0x8}
 
     def __init__(self, index):
-        dll = BASE / "lib" / "SDL3.dll"
-        if not dll.exists():
-            raise OSError(f"{dll} not found")
-        self.sdl = sdl = ctypes.CDLL(str(dll))
+        self.sdl = sdl = _load_sdl()
         sdl.SDL_SetHint.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
         sdl.SDL_Init.argtypes = [ctypes.c_uint32]
         sdl.SDL_GetGamepads.argtypes = [ctypes.POINTER(ctypes.c_int)]
@@ -334,10 +531,120 @@ class SdlBackend:
         return state
 
 
+def _load_sdl():
+    """The vendored SDL3.dll on Windows, or libSDL3 on Linux."""
+    if sys.platform == "win32":
+        dll = BASE / "lib" / "SDL3.dll"
+        if not dll.exists():
+            raise OSError(f"{dll} not found")
+        return ctypes.CDLL(str(dll))
+    names = [str(BASE / "lib" / "libSDL3.so"), "libSDL3.so.0", "libSDL3.so"]
+    last = None
+    for name in names:
+        try:
+            return ctypes.CDLL(name)
+        except OSError as e:
+            last = e
+    raise OSError(f"SDL3 library not found ({last})")
+
+
+# Linux joystick buttons in the order joydev numbers them, which follows the kernel's
+# BTN_SOUTH bitmap: south, east, north, west, LB, RB, LT, RT, back, start, guide, LS, RS.
+_JS_BUTTONS = (0x1000, 0x2000, 0x8000, 0x4000, 0x100, 0x200, None, None, 0x20, 0x10, 0x400, 0x40, 0x80)
+
+
+def _js_trigger(value):
+    """joydev trigger axis (-32767..32767 or 0..32767) to the overlay's 0..255."""
+    if value < 0:
+        value += 32768
+    return max(0, min(255, int(value) * 255 // 32767))
+
+
+class LinuxJsBackend:
+    """Gamepads that show up as /dev/input/js* (the kernel joydev interface)."""
+
+    name = "Linux joystick"
+
+    def __init__(self, index):
+        if sys.platform == "win32":
+            raise OSError("Linux joystick is not used on Windows")
+        root = Path("/dev/input")
+        paths = sorted(p for p in root.glob("js*") if p.name[2:].isdigit()) if root.is_dir() else []
+        if not paths:
+            raise OSError("no /dev/input/js* device")
+        slot = 0 if index is None else index
+        if slot >= len(paths):
+            raise OSError(f"joystick index {slot} out of range ({len(paths)} device(s))")
+        try:
+            self.fd = os.open(paths[slot], os.O_RDONLY | os.O_NONBLOCK)
+        except OSError as e:
+            raise OSError(f"cannot read {paths[slot]}: {e}") from e
+        self.path = paths[slot]
+        # Axis order is ascending ABS_* codes: X, Y, Z, Rx, Ry, Rz, hat X, hat Y.
+        self.state = {"c": 1, "b": 0, "x": 0, "r": 0, "t": [], "ty": 0, "nm": paths[slot].name,
+                      "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0}
+        print(f"[pad] {self.name}: {paths[slot]}")
+
+    def poll(self):
+        while True:
+            try:
+                data = os.read(self.fd, 8)
+            except BlockingIOError:
+                break
+            if len(data) < 8:
+                raise OSError(f"{self.path} closed")
+            _time, value, kind, number = struct.unpack("<IhBB", data)
+            kind &= ~0x80                                          # drop the init flag
+            if kind == 1:                                          # button
+                self._button(number, value)
+            elif kind == 2:                                        # axis
+                self._axis(number, value)
+        return self.state
+
+    def _button(self, number, value):
+        if number >= len(_JS_BUTTONS):
+            return
+        down = 1 if value else 0
+        mask = _JS_BUTTONS[number]
+        if mask is None:                                           # digital triggers
+            if number == 6:
+                self.state["lt"] = 255 if down else 0
+            elif number == 7:
+                self.state["rt"] = 255 if down else 0
+            return
+        if down:
+            self.state["b"] |= mask
+        else:
+            self.state["b"] &= ~mask
+
+    def _axis(self, number, value):
+        if number == 0:
+            self.state["lx"] = value
+        elif number == 1:
+            self.state["ly"] = -value - (value == -32768)
+        elif number == 2:
+            self.state["lt"] = _js_trigger(value)
+        elif number == 3:
+            self.state["rx"] = value
+        elif number == 4:
+            self.state["ry"] = -value - (value == -32768)
+        elif number == 5:
+            self.state["rt"] = _js_trigger(value)
+        elif number in (6, 7):
+            bit_lo, bit_hi = (0x4, 0x8) if number == 6 else (0x1, 0x2)   # left/right or up/down
+            self.state["b"] &= ~(bit_lo | bit_hi)
+            if value < 0:
+                self.state["b"] |= bit_lo
+            elif value > 0:
+                self.state["b"] |= bit_hi
+
+
 class XInputBackend:
     name = "XInput"
 
     def __init__(self, slot):
+        if sys.platform != "win32":
+            raise OSError("XInput is Windows-only")
         for name in ("xinput1_4", "xinput1_3", "xinput9_1_0"):
             try:
                 self.dll = ctypes.WinDLL(name)
@@ -370,7 +677,9 @@ class XInputBackend:
 
 def gamepad_thread(index):
     backends = []
-    for cls in (SdlBackend, GcAdapterBackend, Switch2ProBackend, XInputBackend):
+    classes = [SdlBackend, GcAdapterBackend, Switch2ProBackend]
+    classes.append(XInputBackend if sys.platform == "win32" else LinuxJsBackend)
+    for cls in classes:
         try:
             backends.append(cls(index))
         except OSError as e:
@@ -491,9 +800,20 @@ async def api_themes(request):
     return web.json_response({"themes": t.list(), "dir": str(t.user)})
 
 
+def open_folder(folder):
+    """Open a directory in the file manager (Explorer on Windows, xdg-open elsewhere)."""
+    if hasattr(os, "startfile"):
+        os.startfile(str(folder))
+    else:
+        subprocess.Popen(["xdg-open", str(folder)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 async def api_open_themes(request):
     folder = request.app["themes"].ensure_user_dir()
-    os.startfile(str(folder))            # opens the folder in Explorer (Windows)
+    try:
+        open_folder(folder)
+    except OSError as e:
+        raise web.HTTPInternalServerError(text=str(e))
     return web.json_response({"ok": True, "dir": str(folder)})
 
 
@@ -623,9 +943,12 @@ async def main(args):
     hub.loop = asyncio.get_running_loop()
     hub.queue = asyncio.Queue()
 
-    keyboard.Listener(on_press=on_press, on_release=on_release).start()
-    mouse.Listener(on_click=on_click, on_scroll=on_scroll).start()
-    threading.Thread(target=raw_mouse_thread, daemon=True).start()
+    if sys.platform == "win32":
+        keyboard.Listener(on_press=on_press, on_release=on_release).start()
+        mouse.Listener(on_click=on_click, on_scroll=on_scroll).start()
+        threading.Thread(target=raw_mouse_thread, daemon=True).start()
+    else:
+        threading.Thread(target=linux_input_thread, daemon=True).start()
     threading.Thread(target=gamepad_thread, args=(args.pad,), daemon=True).start()
 
     app = web.Application(middlewares=[guard])
@@ -662,7 +985,8 @@ if __name__ == "__main__":
     p.add_argument("--pad", type=int, default=None, help="controller index when several are connected (default: first)")
     # The global hook threads can keep the process alive after Ctrl+C, so exit hard.
     signal.signal(signal.SIGINT, lambda *_: os._exit(0))
-    signal.signal(signal.SIGBREAK, lambda *_: os._exit(0))
+    if hasattr(signal, "SIGBREAK"):                 # Windows console break; Linux has no equivalent
+        signal.signal(signal.SIGBREAK, lambda *_: os._exit(0))
     try:
         asyncio.run(main(p.parse_args()))
     except KeyboardInterrupt:
