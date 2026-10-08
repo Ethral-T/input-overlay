@@ -18,6 +18,7 @@ import json
 import os
 import re
 import secrets
+import select
 import signal
 import struct
 import subprocess
@@ -92,6 +93,18 @@ _XSYM_VK = {
     0xFFE9: 164, 0xFFEA: 165, 0xFE03: 165, 0xFFEB: 91, 0xFFEC: 92,
 }
 _XSYM_VK.update({0xFFBE + i: 112 + i for i in range(12)})   # F1..F12
+# Keypad. XKB stores navigation on level 1 and the digit on level 2; Num Lock picks the level.
+_XSYM_VK.update({
+    0xFF8D: 13,                                                    # KP_Enter -> Enter
+    0xFF95: 36, 0xFF96: 37, 0xFF97: 38, 0xFF98: 39, 0xFF99: 40,   # Home Left Up Right Down
+    0xFF9A: 33, 0xFF9B: 34, 0xFF9C: 35, 0xFF9D: 12,               # PgUp PgDn End Clear (numpad 5)
+    0xFF9E: 45, 0xFF9F: 46,                                        # Insert Delete
+    0xFFAA: 106, 0xFFAB: 107, 0xFFAC: 108, 0xFFAD: 109, 0xFFAE: 110, 0xFFAF: 111,
+})
+_XSYM_VK.update({0xFFB0 + i: 96 + i for i in range(10)})           # KP_0..KP_9
+# Level 1 of a keypad key (num lock off) and level 2 (num lock on).
+_KP_NAV = {0xFF95, 0xFF96, 0xFF97, 0xFF98, 0xFF99, 0xFF9A, 0xFF9B, 0xFF9C, 0xFF9D, 0xFF9E, 0xFF9F}
+_KP_NUMBER = set(range(0xFFB0, 0xFFBA)) | {0xFFAE}
 _CHAR_VK = {
     " ": 32, "`": 192, "-": 189, "=": 187, "[": 219, "]": 221, "\\": 220,
     ";": 186, "'": 222, ",": 188, ".": 190, "/": 191,
@@ -117,18 +130,20 @@ def _linux_vk(keysym, char):
 
 
 def vk_of(key):
+    """Windows virtual-key code from a pynput key. The Windows hooks are the only caller;
+    on Linux the XInput2 thread resolves keysyms with _linux_vk instead."""
     vk = getattr(key, "vk", None)
     if vk is None:
         vk = getattr(getattr(key, "value", None), "vk", None)
-    if sys.platform == "win32":
-        return vk
-    char = getattr(key, "char", None)
-    if char is None:
-        char = getattr(getattr(key, "value", None), "char", None)
-    return _linux_vk(vk, char)
+    return vk
 
 
 _down_keys = set()
+_down_buttons = set()
+# X keycode -> the virtual-key emitted on press. The release uses this rather
+# than the modifiers at release time, so a Num Lock or Shift change in between
+# cannot leave the pressed key lit.
+_held_keycodes = {}
 
 
 def on_press(key):
@@ -197,21 +212,82 @@ def _parse_xi_raw_motion(data):
     return source, vals[0], vals[1]
 
 
-def _pointer_delta(source, x, y, pointer_x, pointer_y, last):
-    """Pixels moved since the previous sample from this device.
+def _reports_position(dev, pointer_x, pointer_y, valuator_class):
+    """True when this pointer's X/Y axes are cursor coordinates, not deltas.
 
-    A relative mouse reports a delta. Virtual pointers (XTEST, VNC) are often marked
-    relative but report the cursor position; a sample that lands on the pointer is
-    that case, and the movement is the change in position.
+    An absolute valuator is a coordinate. The XTEST pointer advertises relative
+    mode but still sends the cursor position (and a coordinate just outside the
+    screen when the pointer is pushed into the corner). Other virtual pointers
+    are recognised the same way when their axis value already sits on the cursor.
+    That comparison is skipped in the corner: a relative delta of 0 is the same
+    number as the origin, which is what made a 1px nudge there look like a jump
+    across the screen.
     """
-    on_pointer = abs(x - pointer_x) <= 1.5 and abs(y - pointer_y) <= 1.5
+    axes = {}
+    for item in dev.classes:
+        if getattr(item, "type", None) == valuator_class and getattr(item, "number", None) in (0, 1):
+            axes[item.number] = item
+    if 0 not in axes or 1 not in axes:
+        return False
+    if axes[0].mode == 1 and axes[1].mode == 1:          # XIModeAbsolute
+        return True
+    if "XTEST" in (getattr(dev, "name", "") or ""):
+        return True
+    if abs(pointer_x) <= 2 and abs(pointer_y) <= 2:
+        return False
+    return abs(axes[0].value - pointer_x) <= 1.5 and abs(axes[1].value - pointer_y) <= 1.5
+
+
+def _position_delta(source, x, y, width, height, last):
+    """Pixel change of a pointer that reports coordinates.
+
+    A sample outside the screen (the corner clamp, where XTEST reports -1 while
+    the cursor stays at 0) is not stored. The caller anchors `last` at the
+    clamped cursor, so the next real move is measured from there and not from
+    wherever the pointer was before it was parked in the corner.
+    """
+    if x < 0 or y < 0 or x >= width or y >= height:
+        return 0, 0
     prev = last.get(source)
-    if on_pointer:
-        last[source] = (x, y)
-        if prev is None:
-            return 0, 0
-        return x - prev[0], y - prev[1]
-    return x, y
+    last[source] = (x, y)
+    if prev is None:
+        return 0, 0
+    return x - prev[0], y - prev[1]
+
+
+def _numlock_mask(display):
+    """Modifier bit for Num Lock, or 0 when the keymap has no such key."""
+    code = display.keysym_to_keycode(0xFF7F)
+    if not code:
+        return 0
+    for index, codes in enumerate(display.get_modifier_mapping()):
+        if code in codes:
+            return 1 << index
+    return 0
+
+
+def _keysym_for_keycode(display, keycode, numlock, shift):
+    """Keysym for a keycode, honouring the keypad's Num Lock / Shift levels.
+
+    XKB's KEYPAD type puts navigation on level 1 and the digit on level 2.
+    Num Lock selects level 2, and Shift swaps the two, matching Windows.
+    """
+    sym0 = display.keycode_to_keysym(keycode, 0) or 0
+    sym1 = display.keycode_to_keysym(keycode, 1) or 0
+    if sym0 in _KP_NAV and sym1 in _KP_NUMBER and (numlock != shift):
+        return sym1
+    return sym0
+
+
+def _release_held_input():
+    """Key-up and button-up for everything still held, so a dropped connection can't leave keys lit."""
+    _held_keycodes.clear()
+    for vk in list(_down_keys):
+        _down_keys.discard(vk)
+        hub.emit({"k": [vk, 0]})
+    for name in list(_down_buttons):
+        _down_buttons.discard(name)
+        hub.emit({"m": [name, 0]})
 
 
 # XInput2 button numbers. 4/5 (and 6/7) are the scroll wheel, not real buttons.
@@ -226,75 +302,150 @@ def _xi_detail(data):
     return struct.unpack_from("<I", data, 6)[0]
 
 
-def linux_input_thread():
-    """Keyboard, buttons, scroll and raw pointer motion via XInput2.
+def _linux_devices(display, root, xinput):
+    """Slave keyboards and pointers, and which pointers report coordinates.
 
-    This is the Linux counterpart of the Windows low-level hooks and Raw Input.
-    Slave devices are selected so injected input (XTest, the VNC keyboard) is
-    included; a master-only selection would miss it.
+    Masters are left out: a master repeats every slave event. Floating slaves
+    (not attached to a seat) are included. The masks are returned and not
+    selected yet, so a rescan can compare them with the current set first.
     """
-    try:
-        from Xlib import X, display
-        from Xlib.ext import xinput
-    except Exception as e:  # noqa: BLE001 - python-xlib is the Linux extra
-        print(f"[input] XInput unavailable; keyboard and mouse disabled ({e})")
-        return
-    try:
-        d = display.Display()
-        d.xinput_query_version()
-    except Exception as e:  # noqa: BLE001
-        print(f"[input] no X display; keyboard and mouse disabled ({e})")
-        return
-    root = d.screen().root
-    info = d.xinput_query_device(xinput.AllDevices)
-    pointers, masks = [], []
+    info = display.xinput_query_device(xinput.AllDevices)
+    pos = root.query_pointer()
     pointer_mask = xinput.RawMotionMask | xinput.RawButtonPressMask | xinput.RawButtonReleaseMask
     key_mask = xinput.RawKeyPressMask | xinput.RawKeyReleaseMask
+    pointers, keyboards, position, masks = [], [], set(), []
     for dev in info.devices:
-        if dev.use == xinput.SlavePointer:
+        if not dev.enabled:
+            continue
+        classes = {getattr(item, "type", None) for item in dev.classes}
+        floating_key = dev.use == xinput.FloatingSlave and xinput.KeyClass in classes and xinput.ValuatorClass not in classes
+        floating_ptr = dev.use == xinput.FloatingSlave and xinput.ValuatorClass in classes
+        if dev.use == xinput.SlaveKeyboard or floating_key:
+            keyboards.append(dev.deviceid)
+            masks.append((dev.deviceid, key_mask))
+        elif dev.use == xinput.SlavePointer or floating_ptr:
             pointers.append(dev.deviceid)
             masks.append((dev.deviceid, pointer_mask))
-        elif dev.use == xinput.SlaveKeyboard:
-            masks.append((dev.deviceid, key_mask))
+            if _reports_position(dev, pos.root_x, pos.root_y, xinput.ValuatorClass):
+                position.add(dev.deviceid)
     if not masks:
+        return None
+    return {
+        "pointers": pointers, "keyboards": keyboards, "position": position, "masks": masks,
+        "width": display.screen().width_in_pixels, "height": display.screen().height_in_pixels,
+        "seed": (pos.root_x, pos.root_y),
+    }
+
+
+def _select_linux_devices(display, root, xinput):
+    """Choose the current slaves and select their raw events."""
+    found = _linux_devices(display, root, xinput)
+    if not found:
+        return None
+    root.xinput_select_events(found["masks"])
+    display.flush()
+    return found
+
+
+def _x_socket_ready(display, timeout):
+    """True when an X event is waiting. A timeout means the caller should rescan devices."""
+    if display.pending_events():
+        return True
+    return bool(select.select([display], [], [], timeout)[0])
+
+
+def _linux_input_session(display, xinput, X):
+    """Read one X connection until it drops. Raises ConnectionClosedError when the server goes away."""
+    display.xinput_query_version()
+    root = display.screen().root
+    selected = _select_linux_devices(display, root, xinput)
+    if not selected:
         print("[input] no input devices; keyboard and mouse disabled")
         return
-    try:
-        root.xinput_select_events(masks)
-        d.flush()
-    except Exception as e:  # noqa: BLE001
-        print(f"[input] could not select raw events; keyboard and mouse disabled ({e})")
-        return
-    print(f"[input] XInput2 ({len(masks) - len(pointers)} keyboard(s), {len(pointers)} pointer(s))")
-    pos = root.query_pointer()
-    # Seed absolute-style pointers so the first sample has a position to diff against.
-    last = {source: (pos.root_x, pos.root_y) for source in pointers}
+    num_mask = _numlock_mask(display)
+    display._overlay_ready = True
+    print(f"[input] XInput2 ({len(selected['keyboards'])} keyboard(s), {len(selected['pointers'])} pointer(s), "
+          f"{len(selected['position'])} reporting position)")
+    last = {source: selected["seed"] for source in selected["position"]}
+
+    def adopt(fresh):
+        nonlocal selected
+        if not fresh:
+            return
+        if (set(fresh["keyboards"]), set(fresh["pointers"])) != (set(selected["keyboards"]), set(selected["pointers"])):
+            print(f"[input] devices changed ({len(fresh['keyboards'])} keyboard(s), "
+                  f"{len(fresh['pointers'])} pointer(s))")
+        for source in fresh["position"] - selected["position"]:
+            last[source] = fresh["seed"]
+        for source in list(last):
+            if source not in fresh["position"]:
+                last.pop(source, None)
+        selected = fresh
+
     while True:
-        event = d.next_event()
+        # Plugged-in keyboards and mice show up within this wait. XI_HierarchyChanged
+        # is the event meant for that, but selecting its mask is a BadValue here and
+        # python-xlib then closes the connection, so the device list is polled instead.
+        # Masks are only rewritten when a keyboard or pointer actually appeared or left.
+        if not _x_socket_ready(display, 1.5):
+            fresh = _linux_devices(display, root, xinput)
+            if not fresh:
+                continue
+            if (set(fresh["keyboards"]), set(fresh["pointers"])) != (set(selected["keyboards"]), set(selected["pointers"])):
+                root.xinput_select_events(fresh["masks"])
+                display.flush()
+                adopt(fresh)
+            else:
+                # A warp that produced no raw event (xdotool's absolute move does
+                # this) would otherwise make the next real sample look like a jump
+                # from the old point. While nothing is queued, catch last up.
+                px, py = fresh["seed"]
+                for source in selected["position"]:
+                    prev = last.get(source)
+                    if prev is None or abs(prev[0] - px) > 2 or abs(prev[1] - py) > 2:
+                        last[source] = (px, py)
+            continue
+        event = display.next_event()
         evtype = getattr(event, "evtype", None)
+        if evtype == xinput.HierarchyChanged:
+            adopt(_select_linux_devices(display, root, xinput))
+            continue
         data = getattr(event, "data", b"")
         if evtype == xinput.RawMotion:
             parsed = _parse_xi_raw_motion(data)
             if not parsed:
                 continue
             source, x, y = parsed
-            pos = root.query_pointer()
-            dx, dy = _pointer_delta(source, x, y, pos.root_x, pos.root_y, last)
+            if source in selected["position"]:
+                dx, dy = _position_delta(source, x, y, selected["width"], selected["height"], last)
+                if x < 0 or y < 0 or x >= selected["width"] or y >= selected["height"]:
+                    pos = root.query_pointer()
+                    last[source] = (pos.root_x, pos.root_y)
+            else:
+                dx, dy = x, y
             if dx or dy:
                 hub.add_motion(int(round(dx)), int(round(dy)))
         elif evtype in (xinput.RawKeyPress, xinput.RawKeyRelease):
             detail = _xi_detail(data)
             if detail is None:
                 continue
-            keysym = d.keycode_to_keysym(detail, 0)
-            if keysym in (None, X.NoSymbol):
-                continue
-            vk = _linux_vk(keysym, None)
-            if vk is None:
-                continue
             down = evtype == xinput.RawKeyPress
+            if down and detail in _held_keycodes:   # auto-repeat: keep the vk from the original press
+                continue
+            if not down and detail in _held_keycodes:
+                vk = _held_keycodes.pop(detail)
+            else:
+                mask = root.query_pointer().mask
+                keysym = _keysym_for_keycode(display, detail, bool(mask & num_mask), bool(mask & X.ShiftMask))
+                if keysym in (None, 0, X.NoSymbol):
+                    continue
+                vk = _linux_vk(keysym, None)
+                if vk is None:
+                    continue
+                if down:
+                    _held_keycodes[detail] = vk
             if down:
-                if vk in _down_keys:                 # ignore auto-repeat
+                if vk in _down_keys:
                     continue
                 _down_keys.add(vk)
             else:
@@ -307,8 +458,52 @@ def linux_input_thread():
                     hub.emit({"s": list(_XI_SCROLL[detail])})
                 continue
             name = _XI_BUTTONS.get(detail)
-            if name:
-                hub.emit({"m": [name, 1 if evtype == xinput.RawButtonPress else 0]})
+            if not name:
+                continue
+            down = evtype == xinput.RawButtonPress
+            if down:
+                _down_buttons.add(name)
+            else:
+                _down_buttons.discard(name)
+            hub.emit({"m": [name, 1 if down else 0]})
+
+
+def linux_input_thread():
+    """Keyboard, buttons, scroll and raw pointer motion via XInput2.
+
+    This is the Linux counterpart of the Windows low-level hooks and Raw Input.
+    If the X server disappears the held keys and buttons are released and the
+    thread connects again, backing off so a dead display is not polled in a loop.
+    """
+    try:
+        from Xlib import X, display, error
+        from Xlib.ext import xinput
+    except Exception as e:  # noqa: BLE001 - python-xlib is the Linux extra
+        print(f"[input] XInput unavailable; keyboard and mouse disabled ({e})")
+        return
+    delay = 0.5
+    while True:
+        try:
+            connection = display.Display()
+        except (error.DisplayConnectionError, OSError) as e:
+            print(f"[input] no X display ({e}); retrying in {delay:.1f}s")
+            time.sleep(delay)
+            delay = min(delay * 2, 5.0)
+            continue
+        try:
+            _linux_input_session(connection, xinput, X)
+            return
+        except error.ConnectionClosedError as e:
+            _release_held_input()
+            if getattr(connection, "_overlay_ready", False):
+                delay = 0.5
+            print(f"[input] X connection lost ({e}); released held input, retrying in {delay:.1f}s")
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - the socket is already dead
+                pass
+            time.sleep(delay)
+            delay = min(delay * 2, 5.0)
 
 
 def raw_mouse_thread():
@@ -548,9 +743,25 @@ def _load_sdl():
     raise OSError(f"SDL3 library not found ({last})")
 
 
-# Linux joystick buttons in the order joydev numbers them, which follows the kernel's
-# BTN_SOUTH bitmap: south, east, north, west, LB, RB, LT, RT, back, start, guide, LS, RS.
-_JS_BUTTONS = (0x1000, 0x2000, 0x8000, 0x4000, 0x100, 0x200, None, None, 0x20, 0x10, 0x400, 0x40, 0x80)
+# evdev button code -> XInput bit. The kernel's gamepad spec names the diamond by
+# compass point (south is A / Cross, west is X / Square), which is not the order
+# every driver uses for js* indices. Xbox's xpad driver, for example, lists X
+# before Y and has no digital-trigger buttons in the middle, so a fixed index
+# table swaps X/Y and shifts Back onto LT.
+_JS_BTN = {
+    0x130: 0x1000, 0x131: 0x2000, 0x133: 0x8000, 0x134: 0x4000,   # south east north west
+    0x136: 0x0100, 0x137: 0x0200,                                 # LB RB
+    0x13A: 0x0020, 0x13B: 0x0010, 0x13C: 0x0400,               # back start guide
+    0x13D: 0x0040, 0x13E: 0x0080,                                 # LS RS
+    0x220: 0x0001, 0x221: 0x0002, 0x222: 0x0004, 0x223: 0x0008, # d-pad up down left right
+}
+_JS_TRIG = {0x138: "lt", 0x139: "rt"}                            # digital triggers
+# ABS_X Y Z RX RY RZ, hat X, hat Y. Used only if the device has no axis map.
+_JS_FALLBACK_AXES = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x10, 0x11)
+_JS_FALLBACK_BTNS = (0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x138, 0x139, 0x13A, 0x13B, 0x13C, 0x13D, 0x13E)
+# JSIOCGAXMAP is __u8[64], JSIOCGBTNMAP is __u16[512]. Numbers from linux/joystick.h.
+_JSIOCGAXMAP = 0x80406A32
+_JSIOCGBTNMAP = 0x84006A34
 
 
 def _js_trigger(value):
@@ -558,6 +769,64 @@ def _js_trigger(value):
     if value < 0:
         value += 32768
     return max(0, min(255, int(value) * 255 // 32767))
+
+
+def _js_apply_button(state, code, down):
+    """Apply one evdev button code to the overlay state. Unknown codes are ignored."""
+    if not code:
+        return
+    trigger = _JS_TRIG.get(code)
+    if trigger:
+        state[trigger] = 255 if down else 0
+        return
+    mask = _JS_BTN.get(code)
+    if not mask:
+        return
+    if down:
+        state["b"] |= mask
+    else:
+        state["b"] &= ~mask
+
+
+def _js_apply_axis(state, code, value):
+    """Apply one ABS_* code. Stick Y is negated so up is positive, matching XInput."""
+    if code == 0x00:
+        state["lx"] = value
+    elif code == 0x01:
+        state["ly"] = -value - (value == -32768)
+    elif code == 0x02:
+        state["lt"] = _js_trigger(value)
+    elif code == 0x03:
+        state["rx"] = value
+    elif code == 0x04:
+        state["ry"] = -value - (value == -32768)
+    elif code == 0x05:
+        state["rt"] = _js_trigger(value)
+    elif code in (0x10, 0x11):
+        bit_lo, bit_hi = (0x4, 0x8) if code == 0x10 else (0x1, 0x2)   # left/right or up/down
+        state["b"] &= ~(bit_lo | bit_hi)
+        if value < 0:
+            state["b"] |= bit_lo
+        elif value > 0:
+            state["b"] |= bit_hi
+
+
+def _js_device_maps(fd):
+    """(axis ABS codes, button evdev codes) from JSIOCGAXMAP / JSIOCGBTNMAP.
+
+    The index in each list is the number joydev puts in an event. Falls back to
+    the kernel's usual order if the ioctls are missing, and says so.
+    """
+    import fcntl
+    try:
+        axes = bytearray(64)
+        buttons = bytearray(1024)
+        fcntl.ioctl(fd, _JSIOCGAXMAP, axes)
+        fcntl.ioctl(fd, _JSIOCGBTNMAP, buttons)
+    except OSError as e:
+        print(f"[pad] joystick map unavailable ({e}); using the standard button order")
+        return list(_JS_FALLBACK_AXES), list(_JS_FALLBACK_BTNS)
+    return list(axes), list(struct.unpack("<512H", buttons))
 
 
 class LinuxJsBackend:
@@ -580,7 +849,7 @@ class LinuxJsBackend:
         except OSError as e:
             raise OSError(f"cannot read {paths[slot]}: {e}") from e
         self.path = paths[slot]
-        # Axis order is ascending ABS_* codes: X, Y, Z, Rx, Ry, Rz, hat X, hat Y.
+        self.axes, self.buttons = _js_device_maps(self.fd)
         self.state = {"c": 1, "b": 0, "x": 0, "r": 0, "t": [], "ty": 0, "nm": paths[slot].name,
                       "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0}
         print(f"[pad] {self.name}: {paths[slot]}")
@@ -602,41 +871,14 @@ class LinuxJsBackend:
         return self.state
 
     def _button(self, number, value):
-        if number >= len(_JS_BUTTONS):
+        if number >= len(self.buttons):
             return
-        down = 1 if value else 0
-        mask = _JS_BUTTONS[number]
-        if mask is None:                                           # digital triggers
-            if number == 6:
-                self.state["lt"] = 255 if down else 0
-            elif number == 7:
-                self.state["rt"] = 255 if down else 0
-            return
-        if down:
-            self.state["b"] |= mask
-        else:
-            self.state["b"] &= ~mask
+        _js_apply_button(self.state, self.buttons[number], 1 if value else 0)
 
     def _axis(self, number, value):
-        if number == 0:
-            self.state["lx"] = value
-        elif number == 1:
-            self.state["ly"] = -value - (value == -32768)
-        elif number == 2:
-            self.state["lt"] = _js_trigger(value)
-        elif number == 3:
-            self.state["rx"] = value
-        elif number == 4:
-            self.state["ry"] = -value - (value == -32768)
-        elif number == 5:
-            self.state["rt"] = _js_trigger(value)
-        elif number in (6, 7):
-            bit_lo, bit_hi = (0x4, 0x8) if number == 6 else (0x1, 0x2)   # left/right or up/down
-            self.state["b"] &= ~(bit_lo | bit_hi)
-            if value < 0:
-                self.state["b"] |= bit_lo
-            elif value > 0:
-                self.state["b"] |= bit_hi
+        if number >= len(self.axes):
+            return
+        _js_apply_axis(self.state, self.axes[number], value)
 
 
 class XInputBackend:
