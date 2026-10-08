@@ -1,0 +1,3 @@
+# Windows runtime. Hashed install: pip install --require-hashes -r requirements-windows.lock
+-r requirements.txt
+pynput>=1.7

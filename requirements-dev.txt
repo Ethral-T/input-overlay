@@ -1,2 +1,3 @@
--r requirements.txt
+# Windows build (the program plus PyInstaller). Hashed install: pip install --require-hashes -r requirements-dev.lock
+-r requirements-windows.txt
 pyinstaller>=6

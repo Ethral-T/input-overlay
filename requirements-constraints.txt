@@ -1,0 +1,15 @@
+# Shared package versions. Matches requirements-windows.lock so Linux and Windows stay on the same releases.
+# python-xlib is resolved from requirements-linux.txt. pynput is Windows-only and is not listed here.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+attrs==26.1.0
+frozenlist==1.8.0
+idna==3.20
+multidict==6.9.1
+pillow==12.3.0
+propcache==0.5.4
+pystray==0.19.5
+six==1.17.0
+typing-extensions==4.16.0
+yarl==1.25.1
