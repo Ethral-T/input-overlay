@@ -1023,19 +1023,23 @@ def _load_sdl():
 
 # evdev button code -> XInput bit. The kernel's gamepad spec names the diamond by
 # compass point (south is A / Cross, north is Y / Triangle, west is X / Square).
-# PlayStation and Switch pads send those compass codes. BTN_X (0x133) is the same
-# number as BTN_NORTH, and BTN_Y (0x134) is BTN_WEST, so an Xbox pad — whose xpad
-# driver reports the physical X button as BTN_X and physical Y as BTN_Y — lands
-# swapped unless the name says to exchange those two codes. A fixed index table
-# used to swap X/Y for every pad and shift Back onto LT; the map ioctl fixed the
-# index, and the name check below fixes the Xbox labels.
+# PlayStation and Switch pads send those compass codes. The wired xpad driver
+# does not: physical X is BTN_X (0x133, the same number as north) and physical Y
+# is BTN_Y (0x134, west). Whether to swap is decided from the driver, below.
+# BTN_TRIGGER..BTN_BASE6 (0x120-0x12b) are a plain joystick, in button order.
 _JS_BTN = {
+    0x120: 0x1000, 0x121: 0x2000, 0x122: 0x4000, 0x123: 0x8000,   # trigger thumb thumb2 top -> A B X Y
+    0x124: 0x0100, 0x125: 0x0200,                                 # top2 pinkie -> LB RB
+    0x126: 0x0020, 0x127: 0x0010,                                 # base base2 -> back start
+    0x128: 0x0040, 0x129: 0x0080, 0x12A: 0x0400,                 # base3 base4 base5 -> LS RS guide
     0x130: 0x1000, 0x131: 0x2000, 0x133: 0x8000, 0x134: 0x4000,   # south east north west
     0x136: 0x0100, 0x137: 0x0200,                                 # LB RB
     0x13A: 0x0020, 0x13B: 0x0010, 0x13C: 0x0400,               # back start guide
     0x13D: 0x0040, 0x13E: 0x0080,                                 # LS RS
     0x220: 0x0001, 0x221: 0x0002, 0x222: 0x0004, 0x223: 0x0008, # d-pad up down left right
 }
+# BTN_BASE6 has no XInput face bit left. It is SDL's misc button (the `x` field).
+_JS_EXTRA = {0x12B: 0x0001}
 _JS_TRIG = {0x138: "lt", 0x139: "rt"}                            # digital triggers
 # ABS_X Y Z RX RY RZ, hat X, hat Y. Used only if the device has no axis map.
 _JS_FALLBACK_AXES = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x10, 0x11)
@@ -1054,15 +1058,51 @@ def _js_trigger(value):
     return max(0, min(255, int(value) * 255 // 32767))
 
 
-def _js_swaps_xy(name):
-    """True when this pad's physical X is BTN_X and its physical Y is BTN_Y.
+# joydev and evdev sit on top of the real driver. The hardware driver is further
+# up the sysfs `device` links: xpad for the wired driver, xpadneo for Bluetooth.
+_JS_SKIP_DRIVERS = {"joydev", "evdev"}
 
-    That is the xpad labelling. DualSense and Switch follow the compass spec
-    (Square is west, Triangle is north), and their names do not match here, so
-    they keep 0x133 as Y and 0x134 as X.
+
+def _js_swaps_xy(driver):
+    """True only for the wired xpad driver.
+
+    xpad reports physical X as BTN_X and physical Y as BTN_Y. Most of the names
+    in xpad.c (8BitDo, Logitech, GameSir, HORI, and so on) do not contain
+    "xbox", so the driver is what decides. xpadneo follows the compass spec and
+    must not be swapped. An unknown driver is left on the compass mapping.
     """
-    text = (name or "").casefold()
-    return "xbox" in text or "x-box" in text or "xpad" in text
+    return (driver or "") == "xpad"
+
+
+def _js_driver(js_path, sysfs_root=None):
+    """Kernel driver behind a /dev/input/js* node, or '' if it cannot be seen.
+
+    `sysfs_root` defaults to /sys/class/input. Tests pass a stand-in tree.
+    """
+    root = Path(sysfs_root) if sysfs_root is not None else Path("/sys/class/input")
+    current = root / Path(js_path).name
+    seen = set()
+    for _ in range(8):
+        try:
+            resolved = current.resolve()
+        except OSError:
+            break
+        if resolved in seen:
+            break
+        seen.add(resolved)
+        link = current / "driver"
+        if link.is_symlink():
+            try:
+                name = Path(os.readlink(link)).name
+            except OSError:
+                name = ""
+            if name and name not in _JS_SKIP_DRIVERS:
+                return name
+        parent = current / "device"
+        if not parent.exists():
+            break
+        current = parent
+    return ""
 
 
 def _js_device_name(fd):
@@ -1088,6 +1128,11 @@ def _js_apply_button(state, code, down, swap_xy=False):
     if trigger:
         state[trigger] = 255 if down else 0
         return
+    extra = _JS_EXTRA.get(code)
+    if extra:
+        field = state.get("x", 0)
+        state["x"] = (field | extra) if down else (field & ~extra)
+        return
     mask = _JS_BTN.get(code)
     if not mask:
         return
@@ -1095,6 +1140,18 @@ def _js_apply_button(state, code, down, swap_xy=False):
         state["b"] |= mask
     else:
         state["b"] &= ~mask
+
+
+def _js_apply_event(state, axes, buttons, swap_xy, data):
+    """One joydev event (`<IhBB` time, value, kind, number) applied to `state`."""
+    if len(data) < 8:
+        raise OSError("short joystick event")
+    _time, value, kind, number = struct.unpack("<IhBB", data)
+    kind &= ~0x80                                              # drop the init flag
+    if kind == 1 and number < len(buttons):
+        _js_apply_button(state, buttons[number], bool(value), swap_xy)
+    elif kind == 2 and number < len(axes):
+        _js_apply_axis(state, axes[number], value)
 
 
 def _js_apply_axis(state, code, value):
@@ -1160,10 +1217,12 @@ class LinuxJsBackend:
         self.path = paths[slot]
         self.axes, self.buttons = _js_device_maps(self.fd)
         self.pad_name = _js_device_name(self.fd) or paths[slot].name
-        self.swap_xy = _js_swaps_xy(self.pad_name)
+        self.driver = _js_driver(paths[slot])
+        self.swap_xy = _js_swaps_xy(self.driver)
         self.state = {"c": 1, "b": 0, "x": 0, "r": 0, "t": [], "ty": 0, "nm": self.pad_name,
                       "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0}
-        print(f"[pad] {self.name}: {self.pad_name}")
+        label = f"{self.pad_name} [{self.driver}]" if self.driver else self.pad_name
+        print(f"[pad] {self.name}: {label}")
 
     def poll(self):
         while True:
@@ -1173,23 +1232,8 @@ class LinuxJsBackend:
                 break
             if len(data) < 8:
                 raise OSError(f"{self.path} closed")
-            _time, value, kind, number = struct.unpack("<IhBB", data)
-            kind &= ~0x80                                          # drop the init flag
-            if kind == 1:                                          # button
-                self._button(number, value)
-            elif kind == 2:                                        # axis
-                self._axis(number, value)
+            _js_apply_event(self.state, self.axes, self.buttons, self.swap_xy, data)
         return self.state
-
-    def _button(self, number, value):
-        if number >= len(self.buttons):
-            return
-        _js_apply_button(self.state, self.buttons[number], 1 if value else 0, self.swap_xy)
-
-    def _axis(self, number, value):
-        if number >= len(self.axes):
-            return
-        _js_apply_axis(self.state, self.axes[number], value)
 
 
 class XInputBackend:
