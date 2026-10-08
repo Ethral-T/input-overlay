@@ -212,47 +212,124 @@ def _parse_xi_raw_motion(data):
     return source, vals[0], vals[1]
 
 
-def _reports_position(dev, pointer_x, pointer_y, valuator_class):
-    """True when this pointer's X/Y axes are cursor coordinates, not deltas.
+def _pointer_kind(dev, valuator_class):
+    """'absolute', 'xtest', or 'relative'.
 
-    An absolute valuator is a coordinate. The XTEST pointer advertises relative
-    mode but still sends the cursor position (and a coordinate just outside the
-    screen when the pointer is pushed into the corner). Other virtual pointers
-    are recognised the same way when their axis value already sits on the cursor.
-    That comparison is skipped in the corner: a relative delta of 0 is the same
-    number as the origin, which is what made a 1px nudge there look like a jump
-    across the screen.
+    XIModeAbsolute valuators are coordinates (a tablet or a touchscreen).
+    A relative-mode device sends deltas, including a real mouse whose valuator
+    happens to read back as the cursor position under Xorg. Treating that
+    valuator as a coordinate turned the next delta into a jump across the screen.
+
+    XTEST is the one relative-mode device that sends both. An absolute XTest
+    move carries the cursor coordinate; a relative XTest move carries the delta.
+    The device name is not enough to decide which, and neither is the valuator
+    value at startup, so each XTEST sample is split later.
     """
     axes = {}
     for item in dev.classes:
         if getattr(item, "type", None) == valuator_class and getattr(item, "number", None) in (0, 1):
             axes[item.number] = item
     if 0 not in axes or 1 not in axes:
-        return False
+        return "relative"
     if axes[0].mode == 1 and axes[1].mode == 1:          # XIModeAbsolute
-        return True
+        return "absolute"
     if "XTEST" in (getattr(dev, "name", "") or ""):
-        return True
-    if abs(pointer_x) <= 2 and abs(pointer_y) <= 2:
-        return False
-    return abs(axes[0].value - pointer_x) <= 1.5 and abs(axes[1].value - pointer_y) <= 1.5
+        return "xtest"
+    return "relative"
 
 
-def _position_delta(source, x, y, width, height, last):
-    """Pixel change of a pointer that reports coordinates.
+def _position_delta(source, x, y, last):
+    """Pixel change of an absolute valuator. The first sample is only a baseline.
 
-    A sample outside the screen (the corner clamp, where XTEST reports -1 while
-    the cursor stays at 0) is not stored. The caller anchors `last` at the
-    clamped cursor, so the next real move is measured from there and not from
-    wherever the pointer was before it was parked in the corner.
+    The numbers are device coordinates. A tablet's range is not the screen size,
+    so a sample past the edge of the monitor is still a real move.
     """
-    if x < 0 or y < 0 or x >= width or y >= height:
-        return 0, 0
     prev = last.get(source)
     last[source] = (x, y)
     if prev is None:
-        return 0, 0
+        return 0.0, 0.0
     return x - prev[0], y - prev[1]
+
+
+def _clamp_screen(x, y, width, height):
+    """Cursor position after the server clamps a coordinate into the screen."""
+    cx = 0 if x < 0 else (width - 1 if x >= width else int(round(x)))
+    cy = 0 if y < 0 else (height - 1 if y >= height else int(round(y)))
+    return cx, cy
+
+
+def _offscreen(x, y, width, height):
+    return x < 0 or y < 0 or x >= width or y >= height
+
+
+def _xtest_deltas(samples, origin, pointer, width, height):
+    """Deltas for one batch of XTEST samples, and the cursor to remember.
+
+    The raw event does not say whether a sample is a coordinate or a delta, and
+    the two are not the same number: a relative +40,+8 while the cursor is at
+    (2, 0) arrives as (40, 8), not (42, 8). A sample that lands on the cursor is
+    a coordinate. A sample past the edge of the screen, while the cursor sits on
+    that edge, is the corner clamp (XTEST reports -1, or a point past the far
+    edge, and the cursor stays put). Subtracting that sample from an older
+    cursor is the jump a 1px nudge used to cause, so the clamp contributes no
+    delta and the remembered cursor becomes the real one.
+
+    Several samples can be waiting, and the cursor has already moved through all
+    of them. Each sample is then either a coordinate or a delta. The combination
+    that starts at `origin` and finishes on `pointer` is the one that happened;
+    a coordinate is preferred when both readings fit, which is also what a
+    relative move from the origin looks like, and both readings give the same
+    delta in that case. A batch that fits neither reading is sent through as
+    deltas, which is what a real relative move is.
+    """
+    px, py = int(round(pointer[0])), int(round(pointer[1]))
+    ox, oy = int(round(origin[0])), int(round(origin[1]))
+    if not samples:
+        return [], (px, py)
+    if len(samples) > 12:
+        last = samples[-1]
+        end = _clamp_screen(last[0], last[1], width, height)
+        on_pointer = abs(last[0] - px) <= 0.5 and abs(last[1] - py) <= 0.5
+        clamped = _offscreen(last[0], last[1], width, height) and end == (px, py)
+        if on_pointer or clamped:
+            return [(px - ox, py - oy)], (px, py)
+        return [(x, y) for x, y in samples], (px, py)
+
+    chosen = []
+
+    def walk(index, pos, path):
+        if chosen:
+            return
+        if index == len(samples):
+            if pos == (px, py):
+                chosen.append(list(path))
+            return
+        x, y = samples[index]
+        end = _clamp_screen(x, y, width, height)
+        path.append(("abs", x, y, end))
+        walk(index + 1, end, path)
+        path.pop()
+        if chosen:
+            return
+        moved = _clamp_screen(pos[0] + x, pos[1] + y, width, height)
+        path.append(("rel", x, y, moved))
+        walk(index + 1, moved, path)
+        path.pop()
+
+    walk(0, (ox, oy), [])
+    if not chosen:
+        return [(x, y) for x, y in samples], (px, py)
+    deltas = []
+    prev = (ox, oy)
+    for kind, x, y, end in chosen[0]:
+        if kind == "rel":
+            deltas.append((x, y))
+        elif _offscreen(x, y, width, height):
+            deltas.append((0, 0))
+        else:
+            deltas.append((end[0] - prev[0], end[1] - prev[1]))
+        prev = end
+    return deltas, (px, py)
 
 
 def _numlock_mask(display):
@@ -303,17 +380,19 @@ def _xi_detail(data):
 
 
 def _linux_devices(display, root, xinput):
-    """Slave keyboards and pointers, and which pointers report coordinates.
+    """Slave keyboards and pointers, and how each pointer reports motion.
 
     Masters are left out: a master repeats every slave event. Floating slaves
     (not attached to a seat) are included. The masks are returned and not
     selected yet, so a rescan can compare them with the current set first.
+    `absolute` devices send coordinates. `xtest` is the virtual pointer, which
+    has to be split per sample. Every other pointer sends deltas.
     """
     info = display.xinput_query_device(xinput.AllDevices)
     pos = root.query_pointer()
     pointer_mask = xinput.RawMotionMask | xinput.RawButtonPressMask | xinput.RawButtonReleaseMask
     key_mask = xinput.RawKeyPressMask | xinput.RawKeyReleaseMask
-    pointers, keyboards, position, masks = [], [], set(), []
+    pointers, keyboards, absolute, xtest, masks = [], [], set(), set(), []
     for dev in info.devices:
         if not dev.enabled:
             continue
@@ -326,14 +405,17 @@ def _linux_devices(display, root, xinput):
         elif dev.use == xinput.SlavePointer or floating_ptr:
             pointers.append(dev.deviceid)
             masks.append((dev.deviceid, pointer_mask))
-            if _reports_position(dev, pos.root_x, pos.root_y, xinput.ValuatorClass):
-                position.add(dev.deviceid)
+            kind = _pointer_kind(dev, xinput.ValuatorClass)
+            if kind == "absolute":
+                absolute.add(dev.deviceid)
+            elif kind == "xtest":
+                xtest.add(dev.deviceid)
     if not masks:
         return None
     return {
-        "pointers": pointers, "keyboards": keyboards, "position": position, "masks": masks,
-        "width": display.screen().width_in_pixels, "height": display.screen().height_in_pixels,
-        "seed": (pos.root_x, pos.root_y),
+        "pointers": pointers, "keyboards": keyboards, "absolute": absolute, "xtest": xtest,
+        "masks": masks, "width": display.screen().width_in_pixels,
+        "height": display.screen().height_in_pixels, "seed": (pos.root_x, pos.root_y),
     }
 
 
@@ -347,6 +429,11 @@ def _select_linux_devices(display, root, xinput):
     return found
 
 
+# How often to look for keyboards and mice that were plugged in. Short enough
+# that a hotplug is noticed while keys are still being held.
+_DEVICE_SCAN_S = 1.5
+
+
 def _x_socket_ready(display, timeout):
     """True when an X event is waiting. A timeout means the caller should rescan devices."""
     if display.pending_events():
@@ -354,118 +441,232 @@ def _x_socket_ready(display, timeout):
     return bool(select.select([display], [], [], timeout)[0])
 
 
+def _batch_has_xtest(events, xinput, xtest_ids):
+    """True when a queued event is raw motion from the XTEST pointer."""
+    if not xtest_ids:
+        return False
+    for event in events:
+        if getattr(event, "evtype", None) != xinput.RawMotion:
+            continue
+        parsed = _parse_xi_raw_motion(getattr(event, "data", b""))
+        if parsed and parsed[0] in xtest_ids:
+            return True
+    return False
+
+
+def _shift_keycodes(display):
+    """Keycodes that are Shift. Modifier index 0 is Shift on the standard map."""
+    mapping = display.get_modifier_mapping()
+    if not mapping:
+        return set()
+    return {code for code in mapping[0] if code}
+
+
 def _linux_input_session(display, xinput, X):
     """Read one X connection until it drops. Raises ConnectionClosedError when the server goes away."""
     display.xinput_query_version()
     root = display.screen().root
-    selected = _select_linux_devices(display, root, xinput)
-    if not selected:
-        print("[input] no input devices; keyboard and mouse disabled")
-        return
-    num_mask = _numlock_mask(display)
     display._overlay_ready = True
-    print(f"[input] XInput2 ({len(selected['keyboards'])} keyboard(s), {len(selected['pointers'])} pointer(s), "
-          f"{len(selected['position'])} reporting position)")
-    last = {source: selected["seed"] for source in selected["position"]}
+    num_mask = _numlock_mask(display)
+    numlock_code = display.keysym_to_keycode(0xFF7F) or 0
+    shift_codes = _shift_keycodes(display)
+    # Num Lock and Shift are tracked from the events themselves. query_pointer()
+    # is the live mask, so a Shift release already sitting in the queue would
+    # otherwise change which keypad key the press maps to.
+    mask = root.query_pointer().mask
+    mods = {"shift": bool(mask & X.ShiftMask), "numlock": bool(mask & num_mask)}
+    # The cursor, for XTEST only. An absolute device is not seeded from the mouse:
+    # its own first sample is the baseline.
+    last = {}
+    selected = None
+    announced = False
+    none_logged = False
+    last_scan = 0.0
 
-    def adopt(fresh):
+    def remember(fresh):
+        """Keep XTEST's cursor and drop devices that left. Does not select events."""
         nonlocal selected
         if not fresh:
+            selected = None
             return
-        if (set(fresh["keyboards"]), set(fresh["pointers"])) != (set(selected["keyboards"]), set(selected["pointers"])):
-            print(f"[input] devices changed ({len(fresh['keyboards'])} keyboard(s), "
-                  f"{len(fresh['pointers'])} pointer(s))")
-        for source in fresh["position"] - selected["position"]:
-            last[source] = fresh["seed"]
+        for source in fresh["xtest"]:
+            if source not in last:
+                last[source] = fresh["seed"]
+        keep = set(fresh["xtest"]) | set(fresh["absolute"])
         for source in list(last):
-            if source not in fresh["position"]:
+            if source not in keep:
                 last.pop(source, None)
         selected = fresh
 
+    def emit_motion(dx, dy):
+        if dx or dy:
+            hub.add_motion(int(round(dx)), int(round(dy)))
+
+    def dispatch(events, pointer):
+        """Handle a batch of events. `pointer` is the cursor after the batch, if an XTEST move was in it."""
+        if not selected:
+            return
+        grouped = {}
+        for index, event in enumerate(events):
+            if getattr(event, "evtype", None) != xinput.RawMotion:
+                continue
+            parsed = _parse_xi_raw_motion(getattr(event, "data", b""))
+            if not parsed or parsed[0] not in selected["xtest"]:
+                continue
+            grouped.setdefault(parsed[0], []).append((index, parsed[1], parsed[2]))
+        xtest_at = {}
+        if pointer is not None:
+            width, height = selected["width"], selected["height"]
+            for source, items in grouped.items():
+                origin = last.get(source, pointer)
+                deltas, new_origin = _xtest_deltas([(x, y) for _, x, y in items], origin, pointer, width, height)
+                last[source] = new_origin
+                for (index, _x, _y), (dx, dy) in zip(items, deltas):
+                    xtest_at[index] = (dx, dy)
+        for index, event in enumerate(events):
+            if not selected:
+                return
+            evtype = getattr(event, "evtype", None)
+            if evtype == xinput.HierarchyChanged:
+                fresh = _linux_devices(display, root, xinput)
+                if fresh:
+                    root.xinput_select_events(fresh["masks"])
+                    display.flush()
+                remember(fresh)
+                continue
+            if index in xtest_at:
+                emit_motion(*xtest_at[index])
+                continue
+            data = getattr(event, "data", b"")
+            if evtype == xinput.RawMotion:
+                parsed = _parse_xi_raw_motion(data)
+                if not parsed:
+                    continue
+                source, x, y = parsed
+                if source in selected["absolute"]:
+                    dx, dy = _position_delta(source, x, y, last)
+                else:
+                    dx, dy = x, y
+                emit_motion(dx, dy)
+                continue
+            if evtype in (xinput.RawKeyPress, xinput.RawKeyRelease):
+                _dispatch_key(display, xinput, X, data, evtype, mods, shift_codes, numlock_code)
+            elif evtype in (xinput.RawButtonPress, xinput.RawButtonRelease):
+                _dispatch_button(data, evtype)
+
     while True:
-        # Plugged-in keyboards and mice show up within this wait. XI_HierarchyChanged
-        # is the event meant for that, but selecting its mask is a BadValue here and
-        # python-xlib then closes the connection, so the device list is polled instead.
-        # Masks are only rewritten when a keyboard or pointer actually appeared or left.
-        if not _x_socket_ready(display, 1.5):
+        # Plugged-in keyboards and mice show up on this timer, including while
+        # keys are still arriving. XI_HierarchyChanged is the event meant for
+        # that, but selecting its mask is a BadValue here and python-xlib then
+        # closes the connection, so the device list is polled instead. Masks are
+        # only rewritten when a keyboard or pointer actually appeared or left.
+        now = time.monotonic()
+        remaining = _DEVICE_SCAN_S - (now - last_scan)
+        due = remaining <= 0
+        ready = _x_socket_ready(display, 0 if due else remaining)
+        if due or not ready:
             fresh = _linux_devices(display, root, xinput)
+            last_scan = time.monotonic()
             if not fresh:
-                continue
-            if (set(fresh["keyboards"]), set(fresh["pointers"])) != (set(selected["keyboards"]), set(selected["pointers"])):
-                root.xinput_select_events(fresh["masks"])
-                display.flush()
-                adopt(fresh)
+                remember(None)
+                if not none_logged:
+                    print("[input] no input devices; keyboard and mouse disabled")
+                    none_logged = True
             else:
-                # A warp that produced no raw event (xdotool's absolute move does
-                # this) would otherwise make the next real sample look like a jump
-                # from the old point. While nothing is queued, catch last up.
-                px, py = fresh["seed"]
-                for source in selected["position"]:
-                    prev = last.get(source)
-                    if prev is None or abs(prev[0] - px) > 2 or abs(prev[1] - py) > 2:
-                        last[source] = (px, py)
+                none_logged = False
+                ids = (set(fresh["keyboards"]), set(fresh["pointers"]))
+                prev = None if selected is None else (set(selected["keyboards"]), set(selected["pointers"]))
+                if ids != prev:
+                    root.xinput_select_events(fresh["masks"])
+                    display.flush()
+                    if announced:
+                        print(f"[input] devices changed ({len(fresh['keyboards'])} keyboard(s), "
+                              f"{len(fresh['pointers'])} pointer(s))")
+                    else:
+                        print(f"[input] XInput2 ({len(fresh['keyboards'])} keyboard(s), "
+                              f"{len(fresh['pointers'])} pointer(s), "
+                              f"{len(fresh['absolute'])} absolute, {len(fresh['xtest'])} XTEST)")
+                        announced = True
+                remember(fresh)
+            if not ready:
+                # Nothing is queued, so the server's mask matches the events already
+                # handled, and a warp that produced no raw event can be caught up.
+                # Skipped while events are waiting: the cursor would then be ahead
+                # of samples we have not read yet.
+                if fresh and not display.pending_events():
+                    px, py = fresh["seed"]
+                    for source in fresh["xtest"]:
+                        prev_xy = last.get(source)
+                        if prev_xy is None or abs(prev_xy[0] - px) > 2 or abs(prev_xy[1] - py) > 2:
+                            last[source] = (px, py)
+                    live = root.query_pointer().mask
+                    if not display.pending_events():
+                        mods["shift"] = bool(live & X.ShiftMask)
+                        mods["numlock"] = bool(live & num_mask)
+                continue
+        if not selected:
+            # A readable socket with no device selected has nothing we can use.
+            # Drain one event so a surprise doesn't turn into a tight loop.
+            if ready or display.pending_events() or _x_socket_ready(display, 0):
+                display.next_event()
             continue
-        event = display.next_event()
-        evtype = getattr(event, "evtype", None)
-        if evtype == xinput.HierarchyChanged:
-            adopt(_select_linux_devices(display, root, xinput))
-            continue
-        data = getattr(event, "data", b"")
-        if evtype == xinput.RawMotion:
-            parsed = _parse_xi_raw_motion(data)
-            if not parsed:
-                continue
-            source, x, y = parsed
-            if source in selected["position"]:
-                dx, dy = _position_delta(source, x, y, selected["width"], selected["height"], last)
-                if x < 0 or y < 0 or x >= selected["width"] or y >= selected["height"]:
-                    pos = root.query_pointer()
-                    last[source] = (pos.root_x, pos.root_y)
-            else:
-                dx, dy = x, y
-            if dx or dy:
-                hub.add_motion(int(round(dx)), int(round(dy)))
-        elif evtype in (xinput.RawKeyPress, xinput.RawKeyRelease):
-            detail = _xi_detail(data)
-            if detail is None:
-                continue
-            down = evtype == xinput.RawKeyPress
-            if down and detail in _held_keycodes:   # auto-repeat: keep the vk from the original press
-                continue
-            if not down and detail in _held_keycodes:
-                vk = _held_keycodes.pop(detail)
-            else:
-                mask = root.query_pointer().mask
-                keysym = _keysym_for_keycode(display, detail, bool(mask & num_mask), bool(mask & X.ShiftMask))
-                if keysym in (None, 0, X.NoSymbol):
-                    continue
-                vk = _linux_vk(keysym, None)
-                if vk is None:
-                    continue
-                if down:
-                    _held_keycodes[detail] = vk
+        events = [display.next_event()]
+        while len(events) < 64 and (display.pending_events() or _x_socket_ready(display, 0)):
+            events.append(display.next_event())
+        pointer = None
+        if _batch_has_xtest(events, xinput, selected["xtest"]):
+            # The cursor distinguishes an XTEST coordinate from an XTEST delta.
+            # A real mouse never takes this round trip.
+            pos = root.query_pointer()
+            while len(events) < 64 and display.pending_events():
+                events.append(display.next_event())
+            pointer = (pos.root_x, pos.root_y)
+        dispatch(events, pointer)
+
+
+def _dispatch_key(display, xinput, X, data, evtype, mods, shift_codes, numlock_code):
+    """Key up or down. Shift and Num Lock are applied after this event's lookup."""
+    detail = _xi_detail(data)
+    if detail is None:
+        return
+    down = evtype == xinput.RawKeyPress
+    if not (down and detail in _held_keycodes):   # auto-repeat keeps the original vk
+        if not down and detail in _held_keycodes:
+            vk = _held_keycodes.pop(detail)
+        else:
+            keysym = _keysym_for_keycode(display, detail, mods["numlock"], mods["shift"])
+            vk = None if keysym in (None, 0, X.NoSymbol) else _linux_vk(keysym, None)
+            if down and vk is not None:
+                _held_keycodes[detail] = vk
+        if vk is not None:
             if down:
-                if vk in _down_keys:
-                    continue
-                _down_keys.add(vk)
+                if vk not in _down_keys:
+                    _down_keys.add(vk)
+                    hub.emit({"k": [vk, 1]})
             else:
                 _down_keys.discard(vk)
-            hub.emit({"k": [vk, 1 if down else 0]})
-        elif evtype in (xinput.RawButtonPress, xinput.RawButtonRelease):
-            detail = _xi_detail(data)
-            if detail in _XI_SCROLL:
-                if evtype == xinput.RawButtonPress:
-                    hub.emit({"s": list(_XI_SCROLL[detail])})
-                continue
-            name = _XI_BUTTONS.get(detail)
-            if not name:
-                continue
-            down = evtype == xinput.RawButtonPress
-            if down:
-                _down_buttons.add(name)
-            else:
-                _down_buttons.discard(name)
-            hub.emit({"m": [name, 1 if down else 0]})
+                hub.emit({"k": [vk, 0]})
+        if detail in shift_codes:
+            mods["shift"] = down
+        elif numlock_code and detail == numlock_code and down:
+            mods["numlock"] = not mods["numlock"]
+
+
+def _dispatch_button(data, evtype):
+    detail = _xi_detail(data)
+    if detail in _XI_SCROLL:
+        if evtype == xinput.RawButtonPress:
+            hub.emit({"s": list(_XI_SCROLL[detail])})
+        return
+    name = _XI_BUTTONS.get(detail)
+    if not name:
+        return
+    down = evtype == xinput.RawButtonPress
+    if down:
+        _down_buttons.add(name)
+    else:
+        _down_buttons.discard(name)
+    hub.emit({"m": [name, 1 if down else 0]})
 
 
 def linux_input_thread():
@@ -482,17 +683,24 @@ def linux_input_thread():
         print(f"[input] XInput unavailable; keyboard and mouse disabled ({e})")
         return
     delay = 0.5
+    told_user = False
     while True:
         try:
             connection = display.Display()
-        except (error.DisplayConnectionError, OSError) as e:
-            print(f"[input] no X display ({e}); retrying in {delay:.1f}s")
+        except (error.DisplayError, OSError) as e:
+            # DisplayNameError (an empty or nonsense DISPLAY) is a DisplayError,
+            # not a DisplayConnectionError, so it used to escape as a traceback.
+            # Say it once; a dead display should not fill the log.
+            if not told_user:
+                print(f"[input] no X display ({e}); retrying in {delay:.1f}s")
+                told_user = True
             time.sleep(delay)
             delay = min(delay * 2, 5.0)
             continue
+        told_user = False
+        delay = 0.5
         try:
             _linux_input_session(connection, xinput, X)
-            return
         except error.ConnectionClosedError as e:
             _release_held_input()
             if getattr(connection, "_overlay_ready", False):
