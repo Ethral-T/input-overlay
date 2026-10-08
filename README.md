@@ -13,7 +13,7 @@ Highlight colours, themes and controller artwork are all adjustable, and you can
 - **Gyro:** the controller picture can tilt, or an aim dot can follow your motion.
 - **Presets:** build several layouts (say "Full", "WASD + Mouse", "Controller only") and switch between them live.
 - **Themes:** Classic, Retro Pixel and Neon, or make your own.
-- **Runs on your PC.** The download is Windows. The same server also runs on Linux (X11) for the keyboard, mouse and controllers. Nothing is sent to the internet.
+- **Runs on your PC.** The download is Windows. The same server also runs on Linux under X11. Nothing is sent to the internet.
 
 ## Download and install
 
@@ -21,6 +21,49 @@ Highlight colours, themes and controller artwork are all adjustable, and you can
 2. A tray icon appears, and the settings page opens the first time.
 
 Windows or your antivirus may warn about the download. That is a false positive; see [Antivirus warnings](#antivirus-and-unrecognised-app-warnings) below.
+
+### Linux
+
+The packaged program is the Windows `.exe`. On Linux you run the server from a checkout. Python 3.12 and 3.13 both work.
+
+Input capture is **X11 only**. A Wayland session, which is the default on Ubuntu and Fedora, does not give this program keystrokes or mouse input from native Wayland applications. Starting the server there still serves the overlay page, but keys pressed in a Wayland app never arrive. Use an X11 session (`DISPLAY` set, and not a Wayland compositor) for capture.
+
+Install the system packages, then the Python packages from `requirements-linux.lock`:
+
+```
+sudo apt install python3-venv python3-pip libusb-1.0-0 xclip xdg-utils
+python3 -m venv .venv
+.venv/bin/pip install --require-hashes -r requirements-linux.lock
+.venv/bin/python server.py
+```
+
+`xsel` works in place of `xclip`. `xdg-utils` provides `xdg-open` for the themes folder. SDL3 is optional: install the package that provides `libSDL3.so.0` (Debian and Ubuntu: `libsdl3-0`) and controllers that SDL knows are used; without it that backend is skipped and `/dev/input/js*` is used instead.
+
+The tray icon (`python app.py`) only has a menu when PyGObject and AppIndicator are installed:
+
+```
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+```
+
+`gir1.2-appindicator3-0.1` is the older package name, if the Ayatana one is not in your distro. On GNOME the icon stays hidden until the AppIndicator (KStatusNotifierItem) extension is enabled; Ubuntu ships it as `gnome-shell-extension-appindicator`. Without these packages the server still runs, and the tray prints that Quit, Copy URL and Start at login are unavailable.
+
+Copy URL uses `wl-copy` only when `WAYLAND_DISPLAY` is set. On X11 it uses `xclip` or `xsel`, including when `wl-copy` happens to be installed.
+
+Settings are stored in `$XDG_CONFIG_HOME/InputOverlay` (or `~/.config/InputOverlay`). If `~/InputOverlay/config.json` or `~/InputOverlay/themes` is already there, that directory is kept so an older install is not orphaned. `INPUT_OVERLAY_HOME` overrides the location. The log is `log.txt` in the same directory. Start at login writes `$XDG_CONFIG_HOME/autostart/input-overlay.desktop` (`~/.config/autostart` when that variable is unset). An entry with `Hidden=true` is treated as off.
+
+The server listens on `127.0.0.1` and does not run as root. Gamepads, the GameCube adapter and the Switch 2 Pro need the logged-in user to be allowed to open the device node. Do not make the nodes world-writable (`MODE="0666"`) and do not start the server with sudo. A udev rule with `TAG+="uaccess"` lets logind grant them to the active session. Create `/etc/udev/rules.d/70-input-overlay.rules`:
+
+```
+# Official GameCube adapter (USB 057e:0337)
+SUBSYSTEM=="usb", ATTR{idVendor}=="057e", ATTR{idProduct}=="0337", TAG+="uaccess"
+# Switch 2 Pro Controller (USB 057e:2069), including its hidraw node
+SUBSYSTEM=="usb", ATTR{idVendor}=="057e", ATTR{idProduct}=="2069", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="2069", TAG+="uaccess"
+# Kernel joystick interface
+SUBSYSTEM=="input", KERNEL=="js*", TAG+="uaccess"
+```
+
+Many desktops already tag `js*` this way. Replug the device after the rule is installed. `/dev/input/js*` still has to be readable by your user; if it is not, the Linux joystick backend says so and the controller picture stays disconnected.
 
 ## Set it up in OBS
 
@@ -34,8 +77,8 @@ The source follows your **active preset**, so you never edit the URL again. Chan
 instantly, with no reload. To pin a source to one preset (for example a controller-only source on a second scene), use
 `http://127.0.0.1:8765/?preset=<name>`.
 
-The tray menu lets you open settings, change the active preset, copy the OBS URL (or one pinned to a preset), open the themes folder, start with Windows, and quit.
-Presets are stored in `%APPDATA%\InputOverlay\config.json`, with a log, `log.txt`, next to it.
+The tray menu lets you open settings, change the active preset, copy the OBS URL (or one pinned to a preset), open the themes folder, start with Windows (or at login on Linux), and quit.
+Presets are stored in `%APPDATA%\InputOverlay\config.json` on Windows. On Linux they are in `~/.config/InputOverlay` unless an older `~/InputOverlay` is already present; see [Linux](#linux). A log, `log.txt`, sits next to the config.
 
 ### Position and size
 
@@ -196,12 +239,7 @@ Hashes are in `requirements-windows.lock`, `requirements-linux.lock`, and `requi
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).
 
-On Linux, install with `pip install --require-hashes -r requirements-linux.lock`. The server needs an X11 display (`DISPLAY` set). Keyboard, mouse buttons,
-scroll and mouse movement are read with XInput2, the same idea as the Windows hooks and Raw Input.
-Controllers come from `/dev/input/js*` when that
-device is readable, and the GameCube adapter and Switch 2 Pro use the system `libusb-1.0`. SDL3 is used when `libSDL3.so`
-is installed; otherwise that backend is skipped. The tray app (`python app.py`) uses the same server and a desktop
-autostart entry instead of the Windows Run key.
+On Linux, install with `pip install --require-hashes -r requirements-linux.lock` and see [Linux](#linux) for the system packages, the X11 limit, and device access. Keyboard, mouse buttons, scroll and mouse movement are read with XInput2. Controllers come from `/dev/input/js*` when that device is readable, and the GameCube adapter and Switch 2 Pro use the system `libusb-1.0`. The tray app (`python app.py`) uses a desktop autostart entry instead of the Windows Run key.
 
 **Controller artwork** is layered SVG: one named group per part, drawn dark and inverted by the overlay, so a new controller is a matter
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in
