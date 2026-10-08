@@ -1,4 +1,8 @@
-"""Preset storage. Presets live in %APPDATA%\\InputOverlay\\config.json.
+"""Preset storage. Presets live in the app directory's config.json.
+
+Windows uses %APPDATA%\\InputOverlay. Linux uses $XDG_CONFIG_HOME/InputOverlay
+(or ~/.config/InputOverlay), and keeps ~/InputOverlay when that directory
+already has a config or themes. INPUT_OVERLAY_HOME overrides both.
 
 A preset is one overlay "variant":
   {"keyboard": {"mode": "full" | "custom" | "off", "keys": [<windows vk codes>], "sizes": {"<vk>": <width in key units>}},
@@ -18,7 +22,22 @@ import re
 import threading
 from pathlib import Path
 
-APP_DIR = Path(os.environ.get("INPUT_OVERLAY_HOME") or Path(os.environ.get("APPDATA") or Path.home()) / "InputOverlay")
+def app_dir():
+    """Where config.json, themes and the log live. See the module docstring."""
+    override = os.environ.get("INPUT_OVERLAY_HOME")
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA") or Path.home()) / "InputOverlay"
+    legacy = Path.home() / "InputOverlay"
+    if (legacy / "config.json").is_file() or (legacy / "themes").is_dir():
+        return legacy
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "InputOverlay"
+
+
+APP_DIR = app_dir()
 CONFIG_PATH = APP_DIR / "config.json"
 VERSION = 2                       # config.json format; see Config._load for migrations
 
