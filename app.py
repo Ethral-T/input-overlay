@@ -45,20 +45,39 @@ def port_in_use(host, port):
 
 
 def copy_to_clipboard(text):
-    # URLs are plain ASCII once percent-encoded, so the built-in `clip` is enough (no extra dependency).
-    clip = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "clip.exe"      # full path: never a look-alike found in another folder
-    subprocess.run([str(clip)], input=text.encode("ascii", "ignore"), creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+    # URLs are plain ASCII once percent-encoded.
+    data = text.encode("ascii", "ignore")
+    if sys.platform == "win32":
+        clip = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "clip.exe"      # full path: never a look-alike found in another folder
+        subprocess.run([str(clip)], input=data, creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+        return
+    for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+        try:
+            subprocess.run(cmd, input=data, check=False)
+            return
+        except FileNotFoundError:
+            continue
+    print(text)
 
 
 # ---- autostart (HKCU Run key, current user only) -------------------------------------------------
 def _autostart_command():
-    if FROZEN:
+    if sys.platform == "win32" and FROZEN:
         return f'"{sys.executable}"'
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    return f'"{pythonw if pythonw.exists() else sys.executable}" "{Path(__file__).resolve()}"'
+    if sys.platform == "win32":
+        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        return f'"{pythonw if pythonw.exists() else sys.executable}" "{Path(__file__).resolve()}"'
+    return f'"{sys.executable}" "{Path(__file__).resolve()}"'
+
+
+def _autostart_desktop():
+    return Path.home() / ".config" / "autostart" / "input-overlay.desktop"
 
 
 def autostart_enabled():
+    if sys.platform != "win32":
+        path = _autostart_desktop()
+        return path.is_file() and "X-GNOME-Autostart-enabled=false" not in path.read_text(errors="replace")
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
@@ -68,6 +87,17 @@ def autostart_enabled():
 
 
 def set_autostart(on):
+    if sys.platform != "win32":
+        path = _autostart_desktop()
+        if on:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "[Desktop Entry]\nType=Application\nName=Input Overlay\n"
+                f"Exec={_autostart_command()}\nX-GNOME-Autostart-enabled=true\n",
+                encoding="utf-8")
+        elif path.exists():
+            path.unlink()
+        return
     import winreg
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         if on:
@@ -127,7 +157,7 @@ def main():
             yield pystray.MenuItem(n, lambda *_a, u=url: copy_to_clipboard(u))
 
     def open_themes_folder(*_):
-        os.startfile(str(server.themes.Themes(server.ROOT / "themes").ensure_user_dir()))
+        server.open_folder(server.themes.Themes(server.ROOT / "themes").ensure_user_dir())
 
     def toggle_autostart(icon, item):
         set_autostart(not autostart_enabled())
@@ -143,7 +173,8 @@ def main():
         pystray.MenuItem("Copy URL pinned to a preset", pystray.Menu(pinned_items)),
         pystray.MenuItem("Open themes folder", open_themes_folder),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Start with Windows", toggle_autostart, checked=lambda item: autostart_enabled()),
+        pystray.MenuItem("Start with Windows" if sys.platform == "win32" else "Start at login",
+                         toggle_autostart, checked=lambda item: autostart_enabled()),
         pystray.MenuItem("Quit", quit_app),
     )
     icon = pystray.Icon(APP_NAME, make_icon(64), "Input Overlay", menu)

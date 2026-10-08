@@ -13,7 +13,7 @@ Highlight colours, themes and controller artwork are all adjustable, and you can
 - **Gyro:** the controller picture can tilt, or an aim dot can follow your motion.
 - **Presets:** build several layouts (say "Full", "WASD + Mouse", "Controller only") and switch between them live.
 - **Themes:** Classic, Retro Pixel and Neon, or make your own.
-- **Windows only.** Everything runs on your PC; nothing is sent to the internet.
+- **Runs on your PC.** The download is Windows. The same server also runs on Linux (X11) for the keyboard, mouse and controllers. Nothing is sent to the internet.
 
 ## Download and install
 
@@ -171,7 +171,7 @@ Releases page or one you built yourself.
 
 ## Build from source
 
-You need Python 3.12 on Windows.
+You need Python 3.12. The packaged program is built on Windows.
 
 ```
 build.bat            builds dist\InputOverlay\InputOverlay.exe (a folder: starts fast, fewer antivirus false positives)
@@ -185,6 +185,13 @@ The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x
 
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).
+
+On Linux the server needs an X11 display (`DISPLAY` set) and `python-xlib`. Keyboard, mouse buttons,
+scroll and mouse movement are read with XInput2, the same idea as the Windows hooks and Raw Input.
+Controllers come from `/dev/input/js*` when that
+device is readable, and the GameCube adapter and Switch 2 Pro use the system `libusb-1.0`. SDL3 is used when `libSDL3.so`
+is installed; otherwise that backend is skipped. The tray app (`python app.py`) uses the same server and a desktop
+autostart entry instead of the Windows Run key.
 
 **Controller artwork** is layered SVG: one named group per part, drawn dark and inverted by the overlay, so a new controller is a matter
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in

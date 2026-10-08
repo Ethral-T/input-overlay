@@ -8,9 +8,11 @@ Windows needs a WinUSB driver on the adapter for libusb to open it (Zadig, "WUP-
 another program (Dolphin) has the adapter open this can't read it, and it quietly retries.
 
 The adapter streams one 37-byte packet every ~8 ms: 0x21, then four 9-byte ports (status, buttons 1, buttons 2, stick X, stick Y,
-C-stick X, C-stick Y, L trigger, R trigger). Needs lib/libusb-1.0.dll (libusb, LGPL-2.1+; see lib/libusb-NOTICE.txt).
+C-stick X, C-stick Y, L trigger, R trigger). Needs lib/libusb-1.0.dll on Windows, or the system libusb on Linux
+(libusb, LGPL-2.1+; see lib/libusb-NOTICE.txt).
 """
 import ctypes
+import sys
 import time
 from pathlib import Path
 
@@ -38,14 +40,39 @@ def _trig(v):
     return max(0, min(255, (v - TRIG_MIN) * 255 // (TRIG_MAX - TRIG_MIN)))
 
 
+def load_libusb():
+    """Vendored libusb-1.0.dll on Windows, or the system libusb-1.0 on Linux."""
+    if sys.platform == "win32":
+        dll = BASE / "lib" / "libusb-1.0.dll"
+        if not dll.exists():
+            raise OSError(f"{dll} not found")
+        return ctypes.CDLL(str(dll))
+    last = None
+    for name in (str(BASE / "lib" / "libusb-1.0.so"), "libusb-1.0.so.0", "libusb-1.0.so"):
+        try:
+            return ctypes.CDLL(name)
+        except OSError as e:
+            last = e
+    raise OSError(f"libusb not found ({last})")
+
+
+def claim(lib, handle, interface):
+    """Claim a USB interface, detaching a kernel driver first when the OS has one."""
+    try:
+        detach = lib.libusb_set_auto_detach_kernel_driver
+    except AttributeError:
+        detach = None
+    if detach is not None:
+        detach.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        detach(handle, 1)
+    return lib.libusb_claim_interface(handle, interface) == 0
+
+
 class GcAdapterBackend:
     name = "GC adapter (libusb)"
 
     def __init__(self, index=None):
-        dll = BASE / "lib" / "libusb-1.0.dll"
-        if not dll.exists():
-            raise OSError(f"{dll} not found")
-        self.lib = lib = ctypes.CDLL(str(dll))
+        self.lib = lib = load_libusb()
         lib.libusb_init.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
         lib.libusb_open_device_with_vid_pid.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_uint16]
         lib.libusb_open_device_with_vid_pid.restype = ctypes.c_void_p
@@ -74,7 +101,7 @@ class GcAdapterBackend:
         h = self.lib.libusb_open_device_with_vid_pid(self.ctx, VID, PID)
         if not h:
             return False
-        if self.lib.libusb_claim_interface(h, 0) != 0:           # another program has it, or no WinUSB driver
+        if not claim(self.lib, h, 0):           # another program has it, or no driver libusb can use
             self.lib.libusb_close(h)
             return False
         init = (ctypes.c_ubyte * 1)(0x13)                        # "start sending controller data"
