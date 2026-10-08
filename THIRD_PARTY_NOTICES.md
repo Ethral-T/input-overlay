@@ -7,7 +7,8 @@ licence; none of them is changed by this project.
 |---|---|---|---|
 | [SDL3](https://libsdl.org) | 3.4.16 | zlib | `lib/SDL3.dll` (reads controllers) |
 | [libusb](https://libusb.info) | 1.0.30 | LGPL-2.1-or-later | `lib/libusb-1.0.dll` (reads the official GameCube adapter and the Switch 2 Pro Controller) |
-| [pynput](https://github.com/moses-palmer/pynput) | 1.8.2 | LGPL-3.0 | Python package (global keyboard and mouse hooks) |
+| [pynput](https://github.com/moses-palmer/pynput) | 1.8.2 | LGPL-3.0 | Python package (Windows keyboard and mouse hooks) |
+| [python-xlib](https://github.com/python-xlib/python-xlib) | 0.33 | LGPL-2.1-or-later | Python package (Linux X11 keyboard and mouse; not in the Windows program) |
 | [pystray](https://github.com/moses-palmer/pystray) | 0.19.5 | LGPL-3.0 | Python package (the tray icon) |
 | [aiohttp](https://github.com/aio-libs/aiohttp) | 3.14 | Apache-2.0 AND MIT | Python package (the local web server) |
 | aiosignal, frozenlist, multidict, propcache, yarl | | Apache-2.0 | Python packages used by aiohttp |
@@ -29,14 +30,14 @@ fails if either file does not match, so you can compare them with a copy you dow
 7cbf37e76dae9c840c7e8dbf7348ee8897dcc86c8ba45e46ada60b89411569f7  lib/libusb-1.0.dll  (libusb 1.0.30, VS2022\MS64\dll)
 ```
 
-The Python packages are pinned, with hashes, in `requirements.lock` (the program) and `requirements-dev.lock` (the program plus the build tools),
-and builds install them with `--require-hashes`, so every build uses exactly the same packages.
+The Python packages are pinned, with hashes, in `requirements-windows.lock` (the Windows program), `requirements-dev.lock` (that program plus the build tools), and `requirements-linux.lock` (the Linux server). Shared packages are listed in `requirements.txt`.
+Builds install them with `--require-hashes`, so every build uses exactly the same packages.
 
 ## About the LGPL components
 
-libusb, pynput and pystray are used unmodified. You can replace them: `libusb-1.0.dll` is an ordinary file in the program's `lib` folder (swap in any
+libusb, pynput, pystray and python-xlib are used unmodified. You can replace them: `libusb-1.0.dll` is an ordinary file in the program's `lib` folder (swap in any
 build of libusb 1.0), and the Python packages are installed from the public package index when the program is built from this repository, so
-building with another version of them (edit `requirements.txt`, regenerate the lock files, and run `build.bat`) gives a program that uses it. Their source code is available from
+building with another version of them (edit the requirements file for that platform, regenerate its lock file, and run `build.bat` on Windows) gives a program that uses it. Their source code is available from
 the project links above.
 
 ## Trademarks

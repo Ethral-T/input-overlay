@@ -180,13 +180,23 @@ build.bat onefile    builds a single dist\InputOverlay.exe (slower to start)
 
 The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x64 release from
 [libsdl-org/SDL](https://github.com/libsdl-org/SDL)) and `libusb-1.0.dll` (libusb 1.0.30, `VS2022\MS64\dll` from the Windows .7z at
-[libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository, and the build checks them against `lib/SHA256SUMS.txt`. Python packages are pinned with hashes in
-`requirements.lock` and `requirements-dev.lock` (regenerate them with `pip-compile --generate-hashes` after changing `requirements.txt`). Distribute the whole `dist\InputOverlay` folder.
+[libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository, and the build checks them against `lib/SHA256SUMS.txt`. Distribute the whole `dist\InputOverlay` folder.
+
+Python packages are split so each platform installs only what it uses:
+
+| File | What it is |
+|---|---|
+| `requirements.txt` | Shared: the web server, the tray icon, and Pillow |
+| `requirements-windows.txt` | Shared, plus pynput |
+| `requirements-linux.txt` | Shared, plus python-xlib |
+| `requirements-dev.txt` | The Windows build: Windows requirements plus PyInstaller |
+
+Hashes are in `requirements-windows.lock`, `requirements-linux.lock`, and `requirements-dev.lock`. Install with `--require-hashes`. Regenerate a lock with `pip-compile --allow-unsafe --generate-hashes --strip-extras` after changing its `.txt` file. Compile the Windows locks on Windows and the Linux lock on Linux, so each file only picks up that platform's packages. `requirements-constraints.txt` keeps the shared packages on the same versions in both locks.
 
 To develop, run `python server.py` for the server in a console with no tray icon. Options: `--port 8765`, `--host 127.0.0.1`, and
 `--pad N` (which controller to use when several are connected).
 
-On Linux the server needs an X11 display (`DISPLAY` set) and `python-xlib`. Keyboard, mouse buttons,
+On Linux, install with `pip install --require-hashes -r requirements-linux.lock`. The server needs an X11 display (`DISPLAY` set). Keyboard, mouse buttons,
 scroll and mouse movement are read with XInput2, the same idea as the Windows hooks and Raw Input.
 Controllers come from `/dev/input/js*` when that
 device is readable, and the GameCube adapter and Switch 2 Pro use the system `libusb-1.0`. SDL3 is used when `libSDL3.so`
