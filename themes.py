@@ -3,7 +3,9 @@
 A theme is a folder containing theme.json plus a stylesheet and any assets (fonts, images, controller artwork):
 
     overlay/themes/<id>/          built in, ships with the app
-    %APPDATA%/InputOverlay/themes/<id>/    added by the user; same id as a built-in = the user's copy wins
+    <app dir>/themes/<id>/        added by the user; same id as a built-in = the user's copy wins
+                                  (Windows: %APPDATA%/InputOverlay, Linux: ~/.config/InputOverlay
+                                  unless ~/InputOverlay already exists)
 
 theme.json:  {"name": "...", "author": "...", "description": "...", "version": "1.0", "css": "theme.css"}
 See docs/THEMES.md for what a theme can restyle.

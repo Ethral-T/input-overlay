@@ -91,6 +91,26 @@ class _HIDP_CAPS(ctypes.Structure):
                 ("NumberFeatureButtonCaps", wt.USHORT), ("NumberFeatureValueCaps", wt.USHORT), ("NumberFeatureDataIndices", wt.USHORT)]
 
 
+def _hid_ids(text):
+    """(vendor, product) from a hidraw uevent's HID_ID line, or None.
+
+    HID_ID is ``bus:vid:pid`` in hexadecimal. Matching those fields, rather than
+    searching the whole file for the digit strings, avoids a name that merely
+    contains them.
+    """
+    for line in text.splitlines():
+        if not line.startswith("HID_ID="):
+            continue
+        parts = line.split("=", 1)[1].split(":")
+        if len(parts) != 3:
+            return None
+        try:
+            return int(parts[1], 16), int(parts[2], 16)
+        except ValueError:
+            return None
+    return None
+
+
 def _linux_hidraw():
     """hidraw node for a Switch 2 Pro (057e:2069), or None when it isn't there."""
     root = Path("/sys/class/hidraw")
@@ -98,10 +118,10 @@ def _linux_hidraw():
         return None
     for node in root.iterdir():
         try:
-            text = (node / "device" / "uevent").read_text(errors="replace").upper()
+            text = (node / "device" / "uevent").read_text(errors="replace")
         except OSError:
             continue
-        if "057E" in text and "2069" in text:
+        if _hid_ids(text) == (VID, PID):
             return Path("/dev") / node.name
     return None
 
