@@ -24,10 +24,10 @@ Windows or your antivirus may warn about the download. That is a false positive;
 
 ### Linux
 
-The packaged program is the Windows `.exe`. On Linux you run the server from a checkout of the Linux branch. Python 3.12 and 3.13 both work.
+The packaged program is the Windows `.exe`. On Linux you run the server from a checkout. Python 3.12 and 3.13 both work.
 
 ```
-git clone -b cursor/linux-input-4e61 https://github.com/Ethral-T/input-overlay.git
+git clone https://github.com/Ethral-T/input-overlay.git
 cd input-overlay
 ```
 
@@ -38,9 +38,11 @@ Install the system packages, then the Python packages from `requirements-linux.l
 ```
 sudo apt install python3-venv python3-pip libusb-1.0-0 xclip xdg-utils
 python3 -m venv --system-site-packages .venv
-.venv/bin/pip install --require-hashes -r requirements-linux.lock
+.venv/bin/pip install --require-hashes --ignore-installed -r requirements-linux.lock
 .venv/bin/python server.py
 ```
+
+`--system-site-packages` is what lets the virtualenv import apt's PyGObject. Without `--ignore-installed`, pip treats libraries that are already installed for the system Python (such as idna, pillow, six and typing-extensions) as satisfied and skips their hash check. `--ignore-installed` puts a hash-checked copy of every locked package into the virtualenv.
 
 `xsel` works in place of `xclip`. `xdg-utils` provides `xdg-open` for the themes folder. SDL3 is optional: install the package that provides `libSDL3.so.0` (Debian and Ubuntu: `libsdl3-0`) and controllers that SDL knows are used; without it that backend is skipped and `/dev/input/js*` is used instead.
 
