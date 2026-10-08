@@ -38,6 +38,21 @@ if sys.stdout is None or sys.stderr is None or FROZEN:
 import server  # noqa: E402  (after stdout is sorted out)
 
 
+def _warn_tray_menu(pystray):
+    """Say so when the Linux tray backend cannot show Quit, Copy URL or Start at login."""
+    if sys.platform == "win32":
+        return
+    module = pystray.Icon.__module__
+    if module.endswith("._xorg") or not getattr(pystray.Icon, "HAS_MENU", True):
+        print("[tray] no menu: install python3-gi, gir1.2-gtk-3.0 and "
+              "gir1.2-ayatanaappindicator3-0.1 (or gir1.2-appindicator3-0.1). "
+              "On GNOME, enable the AppIndicator extension. "
+              "Until then the icon has no Quit, Copy URL or Start at login.")
+    elif module.endswith("._gtk"):
+        print("[tray] using the GTK status icon. On GNOME that icon is hidden; "
+              "install AppIndicator and enable the AppIndicator extension so the menu is visible.")
+
+
 def port_in_use(host, port):
     with socket.socket() as s:
         s.settimeout(0.3)
@@ -51,12 +66,21 @@ def copy_to_clipboard(text):
         clip = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "clip.exe"      # full path: never a look-alike found in another folder
         subprocess.run([str(clip)], input=data, creationflags=subprocess.CREATE_NO_WINDOW, check=False)
         return
-    for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+    # wl-copy exits non-zero on X11 (there is no Wayland compositor), and a failure used
+    # to stop the search before xclip. Only offer it when this session is actually Wayland.
+    commands = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        commands.append(["wl-copy"])
+    commands += [["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]]
+    for cmd in commands:
         try:
-            subprocess.run(cmd, input=data, check=False)
-            return
+            result = subprocess.run(cmd, input=data, check=False, timeout=3)
         except FileNotFoundError:
             continue
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode == 0:
+            return
     print(text)
 
 
@@ -70,14 +94,39 @@ def _autostart_command():
     return f'"{sys.executable}" "{Path(__file__).resolve()}"'
 
 
+def _xdg_config_home():
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    return Path(raw) if raw else Path.home() / ".config"
+
+
 def _autostart_desktop():
-    return Path.home() / ".config" / "autostart" / "input-overlay.desktop"
+    return _xdg_config_home() / "autostart" / "input-overlay.desktop"
+
+
+def _desktop_value(text, key):
+    """Value of one desktop-entry key, compared case-insensitively, or None."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("[") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        if name.strip().lower() == key:
+            return value.strip().lower()
+    return None
 
 
 def autostart_enabled():
     if sys.platform != "win32":
         path = _autostart_desktop()
-        return path.is_file() and "X-GNOME-Autostart-enabled=false" not in path.read_text(errors="replace")
+        if not path.is_file():
+            return False
+        text = path.read_text(errors="replace")
+        # Hidden=true is how a desktop session disables an autostart entry without deleting it.
+        if _desktop_value(text, "hidden") == "true":
+            return False
+        if _desktop_value(text, "x-gnome-autostart-enabled") == "false":
+            return False
+        return True
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
@@ -141,6 +190,7 @@ def main():
 
     import pystray
     from appicon import make_icon
+    _warn_tray_menu(pystray)
 
     def open_settings(*_):
         webbrowser.open(base + "/settings")
