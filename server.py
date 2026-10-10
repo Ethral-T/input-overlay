@@ -1023,9 +1023,10 @@ def _load_sdl():
 
 # evdev button code -> XInput bit. The kernel's gamepad spec names the diamond by
 # compass point (south is A / Cross, north is Y / Triangle, west is X / Square).
-# PlayStation and Switch pads send those compass codes. The wired xpad driver
-# does not: physical X is BTN_X (0x133, the same number as north) and physical Y
-# is BTN_Y (0x134, west). Whether to swap is decided from the driver, below.
+# PlayStation and Switch pads send those compass codes. xpad and xpadneo do not:
+# physical X is BTN_X (0x133, the same number as north) and physical Y is BTN_Y
+# (0x134, west). A Microsoft Bluetooth pad on hid-generic or hid-microsoft does
+# the same. Whether to swap is decided from the driver, below.
 # BTN_TRIGGER..BTN_BASE6 (0x120-0x12b) are a plain joystick, in button order.
 _JS_BTN = {
     0x120: 0x1000, 0x121: 0x2000, 0x122: 0x4000, 0x123: 0x8000,   # trigger thumb thumb2 top -> A B X Y
@@ -1061,27 +1062,65 @@ def _js_trigger(value):
 # joydev and evdev sit on top of the real driver. The hardware driver is further
 # up the sysfs `device` links: xpad for the wired driver, xpadneo for Bluetooth.
 _JS_SKIP_DRIVERS = {"joydev", "evdev"}
+# These two report Xbox X as BTN_X and Xbox Y as BTN_Y. xpadneo's usage map
+# sends 0x90003 to BTN_X and 0x90004 to BTN_Y, and SDL maps both as x:b2 y:b3.
+_JS_SWAP_DRIVERS = {"xpad", "xpadneo"}
+# hid-microsoft registers its sysfs driver as "microsoft". The module name is
+# accepted as well. hid-generic is the fallback when neither driver claims the pad.
+_JS_MS_DRIVERS = {"hid-generic", "hid-microsoft", "microsoft"}
+_JS_MS_VENDOR = 0x045E
 
 
-def _js_swaps_xy(driver):
-    """True only for the wired xpad driver.
+def _js_swaps_xy(driver, vendor=None):
+    """True when physical X is BTN_X and physical Y is BTN_Y.
 
-    xpad reports physical X as BTN_X and physical Y as BTN_Y. Most of the names
-    in xpad.c (8BitDo, Logitech, GameSir, HORI, and so on) do not contain
-    "xbox", so the driver is what decides. xpadneo follows the compass spec and
-    must not be swapped. An unknown driver is left on the compass mapping.
+    xpad and xpadneo both do that, whatever the product string is. A Microsoft
+    Bluetooth pad (USB vendor 045e) on hid-generic or hid-microsoft does too.
+    PlayStation, Switch and generic joysticks follow the compass names, so
+    BTN_X stays north (Y) and BTN_Y stays west (X).
     """
-    return (driver or "") == "xpad"
+    name = driver or ""
+    if name in _JS_SWAP_DRIVERS:
+        return True
+    if name in _JS_MS_DRIVERS and vendor == _JS_MS_VENDOR:
+        return True
+    return False
 
 
-def _js_driver(js_path, sysfs_root=None):
-    """Kernel driver behind a /dev/input/js* node, or '' if it cannot be seen.
+def _js_read_vendor(node):
+    """Vendor id on this sysfs node, or None.
+
+    Input devices publish it as `id/vendor` (four hex digits). USB devices
+    publish `idVendor` in the same form.
+    """
+    for rel in ("id/vendor", "idVendor"):
+        path = node / rel
+        try:
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="ascii", errors="replace")[:32].strip()
+        except OSError:
+            continue
+        if text.lower().startswith("0x"):
+            text = text[2:]
+        try:
+            return int(text, 16)
+        except ValueError:
+            continue
+    return None
+
+
+def _js_identity(js_path, sysfs_root=None):
+    """(driver, vendor) behind a /dev/input/js* node.
 
     `sysfs_root` defaults to /sys/class/input. Tests pass a stand-in tree.
+    vendor is an int, or None when the tree has no id file. The driver is ''
+    when no hardware driver is linked.
     """
     root = Path(sysfs_root) if sysfs_root is not None else Path("/sys/class/input")
     current = root / Path(js_path).name
     seen = set()
+    vendor = None
     for _ in range(8):
         try:
             resolved = current.resolve()
@@ -1090,6 +1129,8 @@ def _js_driver(js_path, sysfs_root=None):
         if resolved in seen:
             break
         seen.add(resolved)
+        if vendor is None:
+            vendor = _js_read_vendor(current)
         link = current / "driver"
         if link.is_symlink():
             try:
@@ -1097,12 +1138,20 @@ def _js_driver(js_path, sysfs_root=None):
             except OSError:
                 name = ""
             if name and name not in _JS_SKIP_DRIVERS:
-                return name
+                return name, vendor
         parent = current / "device"
         if not parent.exists():
             break
         current = parent
-    return ""
+    return "", vendor
+
+
+def _js_driver(js_path, sysfs_root=None):
+    """Kernel driver behind a /dev/input/js* node, or '' if it cannot be seen.
+
+    `sysfs_root` defaults to /sys/class/input. Tests pass a stand-in tree.
+    """
+    return _js_identity(js_path, sysfs_root)[0]
 
 
 def _js_device_name(fd):
@@ -1217,8 +1266,8 @@ class LinuxJsBackend:
         self.path = paths[slot]
         self.axes, self.buttons = _js_device_maps(self.fd)
         self.pad_name = _js_device_name(self.fd) or paths[slot].name
-        self.driver = _js_driver(paths[slot])
-        self.swap_xy = _js_swaps_xy(self.driver)
+        self.driver, vendor = _js_identity(paths[slot])
+        self.swap_xy = _js_swaps_xy(self.driver, vendor)
         self.state = {"c": 1, "b": 0, "x": 0, "r": 0, "t": [], "ty": 0, "nm": self.pad_name,
                       "lt": 0, "rt": 0, "lx": 0, "ly": 0, "rx": 0, "ry": 0}
         label = f"{self.pad_name} [{self.driver}]" if self.driver else self.pad_name
