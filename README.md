@@ -1,29 +1,137 @@
-<p align="center"><img src="docs/logo.png" alt="Input Overlay logo" width="128"></p>
+<div align="center">
 
-<h1 align="center">Input Overlay</h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/banner-dark.png">
+  <img alt="Input Overlay: your keyboard, mouse and controllers on stream" src="docs/images/banner-light.png" width="100%">
+</picture>
 
-![Input Overlay](docs/input-overlay-promo.png)
+<br><br>
 
-A stream overlay that shows your **keyboard**, **mouse** and **game controller** live, for OBS or any other streaming software.
-Highlight colours, themes and controller artwork are all adjustable, and you can switch between layouts with a Stream Deck.
+<img alt="Version 1.0.1" src="https://img.shields.io/badge/version-1.0.1-38bdf8?style=for-the-badge">
+<img alt="Windows" src="https://img.shields.io/badge/Windows-10_%7C_11-0078D4?style=for-the-badge&logo=windows&logoColor=white">
+<img alt="OBS Browser Source" src="https://img.shields.io/badge/OBS-Browser_Source-302E31?style=for-the-badge&logo=obsstudio&logoColor=white">
+<img alt="Up to four controllers" src="https://img.shields.io/badge/controllers-up_to_4-22C55E?style=for-the-badge">
+<img alt="Nothing leaves your PC" src="https://img.shields.io/badge/internet-not_needed-F5A524?style=for-the-badge">
+<img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-A78BFA?style=for-the-badge">
 
-- **Keyboard:** show the whole thing, with or without the numpad, or only the keys you use (WASD, a custom set), with resizable keys.
-- **Mouse:** buttons, scroll wheel, side buttons and a movement dot. It works in games that lock the cursor.
-- **Controllers:** Steam Controller, Xbox, PlayStation 4 and 5, Switch Pro, Switch 2 Pro and GameCube, with analogue triggers, sticks and trackpads. Show up to four at once for co-op, each in its own colour.
-- **Free layout:** drag the keyboard, mouse and controllers wherever you want them instead of in a row.
-- **Gyro:** the controller picture can tilt, or an aim dot can follow your motion.
-- **Presets:** build several layouts (say "Full", "WASD + Mouse", "Controller only") and switch between them live.
-- **Themes:** Classic, Retro Pixel and Neon, or make your own.
-- **Windows only.** Everything runs on your PC. Nothing goes to the internet unless you turn on the optional update check (see [Updates](#updates)), and even then nothing you type or do is sent anywhere.
+<h3>
+  <a href="#-what-it-does">What it does</a> ·
+  <a href="#-download-and-install">Download</a> ·
+  <a href="#-set-it-up-in-obs">OBS setup</a> ·
+  <a href="#-how-it-works">How it works</a> ·
+  <a href="#-whats-in-this-repo">Repo map</a> ·
+  <a href="docs/THEMES.md">Make a theme</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</h3>
 
-## Download and install
+<br>
+
+<img alt="The Settings page: presets, Stream Deck URLs and a live preview of the keyboard and mouse" src="docs/images/hero.png" width="92%">
+
+<sub><i>Settings has a live preview. What you see there is what OBS shows.</i></sub>
+
+</div>
+
+<br>
+
+## 🎯 What it does
+
+Input Overlay shows your **keyboard**, **mouse** and **game controllers** live on stream, in OBS or any other program that can load a web page. Pick your highlight colour, theme and controller artwork, save several layouts as **presets**, and switch between them from a Stream Deck.
+
+It runs on your PC as a small tray program. OBS loads the overlay from it as a Browser Source with a transparent background. Everything stays on your computer unless you turn on the optional update check.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/keyboard-mouse.png" alt="The keyboard and mouse with W, A, Shift, Space and the left mouse button lit">
+    </td>
+    <td width="50%" valign="top">
+      <h3>⌨️ Keyboard &amp; mouse</h3>
+      Show the whole keyboard, with or without the <b>numpad</b>, or only the keys you use (WASD, or your own set). Keys can be resized, and Enter and numpad Enter stay separate. The mouse shows its buttons, scroll wheel, side buttons and a movement dot, and it works in games that lock the cursor.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🎮 Controllers</h3>
+      Steam Controller, Xbox, PlayStation 4 and 5, Switch Pro, Switch 2 Pro and GameCube, with analogue triggers, sticks and trackpads. Show up to <b>four at once</b> for co-op, or let <b>Auto</b> show however many are plugged in. Each gets its own artwork and, if you like, its own colour. Controllers with a gyro can tilt on screen, or drive an aim dot.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/controllers.png" alt="Three controllers side by side, each in its own colour">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/preview.png" alt="The Settings preview with Position, Size and Free layout under it">
+    </td>
+    <td width="50%" valign="top">
+      <h3>📐 Free layout</h3>
+      Drag the keyboard, mouse and each controller wherever you want them; they snap to each other's edges. Tick <b>Move individual keys</b> to move single keys, even on top of keys you've hidden. The <b>magnifying glass</b> blows the preview up so you can place things precisely, and <b>Position</b> and <b>Size</b> keep the overlay on screen in OBS.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🎛️ Presets &amp; Stream Deck</h3>
+      Build layouts like "Full", "WASD + Mouse" and "Controller only", and switch between them live, with no reload. A Stream Deck button, a hotkey tool or a script only has to open a web address. <b>Show the URLs</b> in Settings lists every one with a Copy button.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/presets.png" alt="Settings with the active preset, OBS URLs and the Stream Deck card">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/themes.png" alt="The same keys in the Classic, Retro Pixel and Neon themes">
+    </td>
+    <td width="50%" valign="top">
+      <h3>🎨 Themes</h3>
+      <b>Classic</b>, <b>Retro Pixel</b> and <b>Neon</b> come with it, and a theme is just a folder of CSS, fonts and images, so you can <a href="docs/THEMES.md">make your own</a>. Highlight colour, opacity and size can be set for every preset at once or for one preset only.
+    </td>
+  </tr>
+</table>
+
+### 🖥️ Two PCs? That works too
+
+If your game PC and your streaming PC are separate, the streaming PC's OBS can load the overlay over your network. It only answers the one PC you name, behind a secret link. See [Two-PC streaming](#-two-pc-streaming-loading-the-overlay-from-another-pc) for how to keep it private on a shared network.
+
+<br>
+
+## 🔧 How it works
+
+```mermaid
+flowchart LR
+  subgraph PC["🖥️ Your PC"]
+    direction TB
+    IN["Keyboard · mouse<br/>controllers"] --> APP["InputOverlay.exe (tray)<br/>http://127.0.0.1:8765"]
+    SET["Settings page<br/>presets · preview"] <-->|"saves"| APP
+    CFG[("config.json<br/>in %APPDATA%")]
+    APP <--> CFG
+  end
+  APP -->|"overlay page + live inputs<br/>(WebSocket)"| OBS["OBS Browser Source<br/>transparent background"]
+  SD["Stream Deck / hotkey<br/>/api/switch/2"] -->|"HTTP GET"| APP
+  APP -. "only if you allow it" .-> OBS2["OBS on a second PC"]
+```
+
+<details>
+<summary><b>The details</b></summary>
+<br>
+
+- **The program** is a Python app packed into `InputOverlay.exe`. It reads the keyboard and mouse with a system-wide hook and controllers through SDL3 (XInput as a fallback, `libusb` for GameCube adapters and the Switch 2 Pro), and serves the overlay page and Settings itself.
+- **The overlay is a web page.** OBS loads `http://127.0.0.1:8765/` and gets inputs live over a WebSocket, so a preset switch or a setting change shows up instantly.
+- **Only your PC can connect** unless you start it with `--allow-lan`, and web pages on other sites are refused. See [Security and privacy](#-security-and-privacy).
+- **Your settings** are in `%APPDATA%\InputOverlay\config.json` (a damaged file is kept as `config.bad`), with `log.txt` next to it.
+- **Nothing is sent anywhere.** The update check is off until you turn it on, and then it only asks GitHub which release is newest.
+
+</details>
+
+<br>
+
+## 🚀 Download and install
 
 1. Download the zip file from the [Releases page](../../releases/latest), unzip it anywhere, and run `InputOverlay.exe`.
 2. A tray icon appears, and the settings page opens the first time.
 
 Windows or your antivirus may warn about the download. That is a false positive; see [Antivirus warnings](#antivirus-and-unrecognised-app-warnings) below.
 
-## Set it up in OBS
+## 🎬 Set it up in OBS
 
 1. In **Settings** (click the tray icon, or open `http://127.0.0.1:8765/settings`), pick a preset or make your own.
    - Click keys to hide or show them, or drag across several. The quick-select buttons (All, None, Letters, Digits, WASD and so on) do it in bulk.
@@ -51,7 +159,7 @@ Presets are stored in `%APPDATA%\InputOverlay\config.json`, with a log, `log.txt
 - To resize a key, drag the right edge of it in the Settings preview. It snaps to quarter-key steps, and the keys after it shift to
   follow. Double-click an edge to reset that key, or press **Reset key sizes** to clear them all.
 
-## Switching presets with a Stream Deck
+## 🎛️ Switching presets with a Stream Deck
 
 Anything that can send an HTTP GET works (Stream Deck, scripts, `curl`). In Stream Deck, use the built-in **Website** action with
 "Access in background" ticked, or an API plugin such as BarRaider's API Ninja. Settings, in the Stream Deck card, has a **Show the URLs** button that lists
@@ -68,7 +176,7 @@ every URL with a Copy button.
 
 All URLs start with `http://127.0.0.1:8765`. Requests that a browser marks as cross-site are rejected, so a web page can't change your preset.
 
-## Controllers
+## 🎮 Controllers
 
 **Controller style** (Settings, Controller) picks the artwork: Steam Controller, Xbox, PlayStation 4, PlayStation 5, Nintendo Switch,
 Switch 2 Pro or GameCube. **Auto-detect** (the default) picks one from the connected controller. Unknown or generic pads get the Xbox art.
@@ -112,7 +220,7 @@ C button and the GL/GR back paddles. ZL and ZR show as on/off buttons.
 **Steam takes exclusive hold of this controller.** If Steam is running the overlay can't read it, so quit Steam first (tray icon, Exit),
 or give the controller a Gamepad layout in Steam so it shows up as a virtual Xbox pad (the overlay then uses the Xbox art unless you pick Nintendo Switch).
 
-## Themes
+## 🎨 Themes
 
 Pick a theme in Settings, Appearance, **Theme**:
 
@@ -127,7 +235,11 @@ lets each preset keep its own. This covers Theme, Highlight colour, Gyro, Fill o
 folder into your themes folder (**Open themes folder** in Settings or the tray menu) and press **Refresh** next to the theme picker.
 Themes can't run code and can't load anything from the internet, but only install themes from people you trust.
 
-## URL options
+## 🔗 URL options
+
+<details>
+<summary><b>Every option</b></summary>
+<br>
 
 Every setting can also be overridden in the Browser Source URL, for example `http://127.0.0.1:8765/?theme=pixel&controller=xbox`.
 
@@ -149,7 +261,9 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 | `static` | `1` doesn't connect to real input (for screenshots and demos) |
 | `debug` | `1` shows the detected controller, button presses and gyro values in the corner |
 
-## Troubleshooting
+</details>
+
+## 🛟 When something's off
 
 - **The overlay doesn't update in OBS after an upgrade:** right-click the source, Properties, **Refresh cache of current page**.
 - **A mouse side button is the wrong one:** tick **Mouse Button Invert** in Settings.
@@ -158,7 +272,7 @@ Every setting can also be overridden in the Browser Source URL, for example `htt
 - **The overlay is blank in OBS after starting the PC:** the overlay page is served by the Input Overlay program itself, so if OBS starts before it (for example when both start with Windows) the Browser Source loads nothing and does not retry on its own. Start Input Overlay first, or tick the Browser Source option **Refresh browser when scene becomes active**, or right-click the source, Properties, **Refresh cache of current page**.
 - **Numpad digits don't light:** they only report while NumLock is on. Numpad Enter lights its own key, separate from the main Enter.
 
-## Updates
+## 🔔 Updates
 
 **The update check is off by default, so out of the box nothing leaves your computer.** If you want it, tick **Check for new versions automatically**
 in Settings, About. About once a day the program then asks GitHub which release of this project is the newest. If yours is older, Settings shows a banner with
@@ -166,7 +280,7 @@ a link to the release page and the tray menu gets an "Update available" item. No
 the old folder. The request carries no information about you or your computer beyond the program's name and version, which are in the request itself.
 **Check now** (Settings, About) asks once, only when you press it, whether or not the automatic check is on.
 
-## Two-PC streaming (loading the overlay from another PC)
+## 🌐 Two-PC streaming (loading the overlay from another PC)
 
 By default the overlay answers **only the PC it runs on**. If your game PC and your streaming PC are separate, the streaming PC's OBS can load the
 overlay from the game PC. The program refuses to listen on the network unless you say exactly which PC may connect, and it protects the connection
@@ -197,7 +311,7 @@ can, use one of these:
 
 Do not use `--host 0.0.0.0` on a shared network without one of these.
 
-## Security and privacy
+## 🔒 Security and privacy
 
 The program listens on `127.0.0.1` only, so nothing outside your PC can connect, and it refuses requests from other websites, because
 any web page could otherwise read your keystrokes from a local server. It won't listen on the network at all unless you start it with `--allow-lan` (see *Two-PC streaming* above).
@@ -208,7 +322,7 @@ any keyboard logger on your machine, so only run it on a PC and account you trus
 
 The keyboard hook is global: the overlay shows keys typed in any window, **including passwords**. Hide the source on sensitive screens.
 
-## Antivirus and "unrecognised app" warnings
+## 🛡️ Antivirus and "unrecognised app" warnings
 
 Windows SmartScreen, browsers and some antivirus scanners (including the combined results on VirusTotal) may flag the download or warn
 that it is "unrecognised". This is a **false positive**, and it is common for tools like this. The reasons:
@@ -228,7 +342,11 @@ that it is "unrecognised". This is a **false positive**, and it is common for to
 Releases page. If your antivirus quarantines it, add an exclusion for the install folder, but only for a copy from this repository's
 Releases page or one you built yourself.
 
-## Build from source
+## 🧰 Build from source
+
+<details>
+<summary><b>Build, test and edit the artwork</b></summary>
+<br>
 
 You need Python 3.12 on Windows.
 
@@ -257,8 +375,72 @@ URL and in your Stream Deck URLs too (for example `http://127.0.0.1:8800/`).
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in
 `overlay/img/`. Keep the group ids if you edit one, and see the `LAYERED` table in `overlay/index.html` for how parts map to inputs.
 
-## Licence
+</details>
+
+<br>
+
+## 📁 What's in this repo
+
+```text
+input-overlay/
+├── app.py                        ← the tray program and its start-up
+├── server.py                     ← the local web server, input hooks and controller backends
+├── config.py                     ← presets and settings: loading, cleaning and saving
+├── themes.py                     ← finds the built-in and your own themes
+├── gcadapter.py · switch2.py     ← GameCube adapter and Switch 2 Pro over USB
+├── appicon.py                    ← draws the logo and the .exe icon
+├── overlay/
+│   ├── index.html                ← the overlay OBS loads
+│   ├── settings.html             ← the Settings page and its live preview
+│   ├── keyboard.js               ← key layout and drawing
+│   ├── themes/                   ← Classic, Retro Pixel and Neon
+│   └── img/                      ← controller artwork the overlay uses
+├── assets/
+│   ├── controllers/              ← the original controller SVGs
+│   └── logo-keys.svg             ← the logo's keys and mouse, for Stream Deck and the like
+├── docs/
+│   ├── THEMES.md · theme-template/   ← how to make a theme
+│   ├── TESTING.md                ← what to try by hand before a release
+│   └── images/                   ← banner and pictures for this page
+├── tests/                        ← automated tests (pytest)
+├── lib/                          ← SDL3.dll and libusb, with SHA256SUMS.txt
+├── build.bat · InputOverlay.spec ← builds the .exe (PyInstaller)
+├── requirements*.txt · *.lock    ← Python packages, pinned with hashes
+├── CHANGELOG.md
+└── THIRD_PARTY_NOTICES.md
+```
+
+<br>
+
+## 🎨 Look and feel
+
+<p>
+  <img alt="Sky #38BDF8" src="https://img.shields.io/badge/player_1-38BDF8-38BDF8?style=flat-square">
+  <img alt="Red #F43F5E" src="https://img.shields.io/badge/player_2-F43F5E-F43F5E?style=flat-square">
+  <img alt="Green #22C55E" src="https://img.shields.io/badge/player_3-22C55E-22C55E?style=flat-square">
+  <img alt="Amber #F5A524" src="https://img.shields.io/badge/player_4-F5A524-F5A524?style=flat-square">
+  <img alt="Ink #0A0E15" src="https://img.shields.io/badge/page-0A0E15-0A0E15?style=flat-square">
+</p>
+
+- **The Settings page follows your highlight colour**, live as you change it.
+- **Every key label is the same size** and sits on one line, in every theme.
+- **The overlay shrinks to fit** its Browser Source, so nothing is cut off at the bottom or right in OBS.
+- **The logo** is the W key lit and the left mouse button pressed, because that is what the program shows.
+
+<br>
+
+## 📄 Licence
 
 Input Overlay is free software under the [MIT licence](LICENSE). It bundles other open-source components (SDL3, libusb and several
 Python packages) that keep their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Xbox, PlayStation, Nintendo, Steam and
 the other product names belong to their owners; this project is independent and not affiliated with them.
+
+<br>
+
+---
+
+<div align="center">
+  <img src="docs/images/logo.svg" alt="" width="56">
+  <br>
+  <sub>Input Overlay · MIT licensed · Windows · Built with Claude</sub>
+</div>
