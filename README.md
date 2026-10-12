@@ -7,7 +7,7 @@
 
 <br><br>
 
-<img alt="Version 1.0.1" src="https://img.shields.io/badge/version-1.0.1-38bdf8?style=for-the-badge">
+<img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-38bdf8?style=for-the-badge">
 <img alt="Windows" src="https://img.shields.io/badge/Windows-10_%7C_11-0078D4?style=for-the-badge&logo=windows&logoColor=white">
 <img alt="OBS Browser Source" src="https://img.shields.io/badge/OBS-Browser_Source-302E31?style=for-the-badge&logo=obsstudio&logoColor=white">
 <img alt="Up to four controllers" src="https://img.shields.io/badge/controllers-up_to_4-22C55E?style=for-the-badge">
