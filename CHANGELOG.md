@@ -3,7 +3,7 @@
 Versions follow the `vX.Y.Z` tags that the release workflow (`.github/workflows/build.yml`) builds from. Pushing a tag that starts with `v`
 builds the zip and creates a draft release.
 
-## Unreleased
+## 1.1.0
 
 - Numpad: an optional numeric keypad (Settings, Keyboard); numpad Enter is a key of its own, apart from the main Enter.
 - Up to four controllers at once, or **Auto** (as many as are connected), each with its own artwork, gyro displays and an optional colour per player.
