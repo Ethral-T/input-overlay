@@ -10,6 +10,7 @@ Starts the capture/web server in a background thread and shows a system-tray ico
 """
 import argparse
 import asyncio
+import contextlib
 import os
 import socket
 import subprocess
@@ -28,18 +29,55 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 # A windowed (no-console) exe has no stdout/stderr; send prints somewhere useful instead of crashing.
 LOG_PATH = config.APP_DIR / "log.txt"
+LOG_LIMIT = 1_000_000          # the log is cut back to empty once it grows past this many bytes
+
+
+class _TrimmedLog:
+    """Line-buffered UTF-8 log file that trims itself: when it grows past LOG_LIMIT it is emptied and a marker line is written.
+    Several threads print at once (server, controller, tray), so every write is under a lock."""
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+        self.f = open(path, "a", buffering=1, encoding="utf-8")
+
+    def write(self, text):
+        with self.lock:
+            n = self.f.write(text)
+            if self.f.tell() > LOG_LIMIT:            # tell() is cheap: it doesn't touch the disk or re-read the file
+                self.f.truncate(0)                   # append mode, so the next write lands at the new end (the start)
+                self.f.write("--- log trimmed ---\n")
+            return n
+
+    def flush(self):
+        with self.lock:
+            self.f.flush()
+
+    def isatty(self):                                # print() and some libraries ask for this
+        return False
+
+    def __getattr__(self, name):                     # anything else (encoding, fileno, ...) comes from the real file
+        return getattr(self.f, name)
+
+
 if sys.stdout is None or sys.stderr is None or FROZEN:
     config.APP_DIR.mkdir(parents=True, exist_ok=True)
     if LOG_PATH.exists() and LOG_PATH.stat().st_size > 512_000:
         LOG_PATH.write_text("", encoding="utf-8")
-    sys.stdout = sys.stderr = open(LOG_PATH, "a", buffering=1, encoding="utf-8")
+    sys.stdout = sys.stderr = _TrimmedLog(LOG_PATH)
     print(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} start ---")
 
 import server  # noqa: E402  (after stdout is sorted out)
 
 
 def port_in_use(host, port):
-    with socket.socket() as s:
+    # A server bound to a wildcard address answers on loopback; connecting to "0.0.0.0" itself fails on Windows,
+    # which would make this look like "not running" (breaking the already-running check and the start-up wait).
+    if host in ("0.0.0.0", ""):
+        host = "127.0.0.1"
+    elif host == "::":
+        host = "::1"
+    with socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET) as s:
         s.settimeout(0.3)
         return s.connect_ex((host, port)) == 0
 
@@ -82,11 +120,17 @@ def set_autostart(on):
 # ---- main ----------------------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description="Input Overlay")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--pad", type=int, default=None, help="controller index when several are connected (default: first)")
+    server.add_network_args(ap)
     args = ap.parse_args()
-    base = f"http://{args.host if args.host not in ('0.0.0.0', '::') else '127.0.0.1'}:{args.port}"
+    problem = server.lan_setup(args)
+    if problem:                                   # a windowed program has no console: say it where it can be seen
+        print(problem)
+        with contextlib.suppress(Exception):
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, problem, "Input Overlay", 0x10)
+        return
+    scheme = "https" if server.LAN["ssl"] else "http"
+    base = f"{scheme}://{args.host if args.host not in ('0.0.0.0', '::') else '127.0.0.1'}:{args.port}"
 
     first_run = not config.CONFIG_PATH.exists()
 
@@ -129,6 +173,11 @@ def main():
     def open_themes_folder(*_):
         os.startfile(str(server.themes.Themes(server.ROOT / "themes").ensure_user_dir()))
 
+    def open_update_page(*_):
+        url = server.update_snapshot()["url"]
+        if url:
+            webbrowser.open(url)
+
     def toggle_autostart(icon, item):
         set_autostart(not autostart_enabled())
 
@@ -137,6 +186,8 @@ def main():
         os._exit(0)
 
     menu = pystray.Menu(
+        pystray.MenuItem(lambda item: f"Update available: {server.update_snapshot()['latest']}", open_update_page,
+                         visible=lambda item: server.update_snapshot()["available"]),
         pystray.MenuItem("Open settings", open_settings, default=True),
         pystray.MenuItem("Active preset", pystray.Menu(active_items)),
         pystray.MenuItem("Copy OBS URL", lambda *_: copy_to_clipboard(base + "/")),
