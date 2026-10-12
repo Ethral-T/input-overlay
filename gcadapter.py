@@ -61,9 +61,9 @@ class GcAdapterBackend:
         self.index = index                       # which connected controller to show when several are plugged in (default: the first)
         self.handle = None
         self.next_try = 0.0
-        self.last = None                         # the last good state, shown again when a read times out
+        self.last = []                           # the last good states, shown again when a read times out
         self.buf = (ctypes.c_ubyte * 37)()
-        self.port = None
+        self.port = []                           # the adapter ports with a controller on them
 
     # -- the adapter
     def _open(self):
@@ -89,12 +89,12 @@ class GcAdapterBackend:
             self.lib.libusb_release_interface(self.handle, 0)
             self.lib.libusb_close(self.handle)
         self.handle = None
-        self.port = None
-        self.last = None
+        self.port = []
+        self.last = []
 
     def poll(self):
         if not self.handle and not self._open():
-            return None
+            return []
         n = ctypes.c_int(0)
         rc = self.lib.libusb_interrupt_transfer(self.handle, EP_IN, self.buf, 37, ctypes.byref(n), 25)
         if rc == -7:                                             # timeout: nothing new
@@ -102,18 +102,20 @@ class GcAdapterBackend:
         if rc != 0 or n.value < 37 or self.buf[0] != 0x21:
             if rc != 0:                                          # unplugged, or something else grabbed it
                 self._close()
-            return None
+            return []
         data = bytes(self.buf)
         ports = [data[1 + 9 * i:10 + 9 * i] for i in range(4)]
         live = [i for i, p in enumerate(ports) if p[0] >> 4 in (1, 2)]    # 0x10 wired pad, 0x20 WaveBird
-        if not live:
-            self.port = None
-            self.last = None
-            return None                                          # the adapter is there but no controller is plugged into it
-        if self.port not in live:
-            self.port = live[min(self.index or 0, len(live) - 1)]
-            print(f"[pad] {self.name}: controller on port {self.port + 1}")
-        s = ports[self.port]
+        if self.index is not None and live:                      # --pad N: only the Nth controller on the adapter
+            live = [live[min(self.index, len(live) - 1)]]
+        if live != self.port:
+            self.port = live
+            print(f"[pad] {self.name}: controllers on port " + (", ".join(str(i + 1) for i in live) if live else "(none)"))
+        self.last = [self._state(ports[i]) for i in live]
+        return self.last
+
+    @staticmethod
+    def _state(s):
         b = 0
         for bit, mask in BTN1.items():
             if s[1] & bit:
@@ -121,7 +123,6 @@ class GcAdapterBackend:
         for bit, mask in BTN2.items():
             if s[2] & bit:
                 b |= mask
-        self.last = {"c": 1, "b": b, "x": 0, "r": s[1] | (s[2] << 8), "t": [], "ty": 11, "nm": "Nintendo GameCube Controller",
-                     "lt": _trig(s[7]), "rt": _trig(s[8]),
-                     "lx": _stick(s[3]), "ly": _stick(s[4]), "rx": _stick(s[5]), "ry": _stick(s[6])}
-        return self.last
+        return {"c": 1, "b": b, "x": 0, "r": s[1] | (s[2] << 8), "t": [], "ty": 11, "nm": "Nintendo GameCube Controller",
+                "lt": _trig(s[7]), "rt": _trig(s[8]),
+                "lx": _stick(s[3]), "ly": _stick(s[4]), "rx": _stick(s[5]), "ry": _stick(s[6])}

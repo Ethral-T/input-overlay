@@ -9,12 +9,11 @@ theme.json:  {"name": "...", "author": "...", "description": "...", "version": "
 See docs/THEMES.md for what a theme can restyle.
 """
 import json
-import re
 from pathlib import Path
 
 import config
 
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,39}$")
+ID_RE = config.THEME_ID_RE      # one definition of a valid theme id, shared with config.clean_theme
 # Only passive file types are ever served from a theme folder: no scripts, no HTML.
 ALLOWED = {".css", ".json", ".svg", ".png", ".gif", ".jpg", ".jpeg", ".webp", ".ttf", ".otf", ".woff", ".woff2"}
 USER_DIR = config.APP_DIR / "themes"

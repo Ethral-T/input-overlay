@@ -22,7 +22,7 @@ my-theme/
   theme.css         your styles (the file named by "css" in theme.json)
   *.ttf / *.woff2   optional fonts       (reference them with a relative url, see below)
   *.png / *.svg     optional images
-  pad-xbox.svg      optional controller artwork replacements (see "Replacing controller artwork")
+  xbox-controller.svg   optional controller artwork replacements, named <name>-controller.svg (see "Replacing controller artwork")
 ```
 
 Only these file types are served from a theme: `.css .json .svg .png .gif .jpg .jpeg .webp .ttf .otf .woff .woff2`.
@@ -45,14 +45,16 @@ only decide how it looks.
 | `--fill` | the "Fill opacity" slider, 0 to 1. Multiply your backgrounds by it: `rgba(20, 24, 33, var(--fill))` |
 | `--key-bg`, `--key-border`, `--key-fg` | default key background / border / text colours |
 | `--unit`, `--gap` | key size and spacing (44px, 4px) |
+| `--label-size` | the one font size for every key label and the mouse's L/R labels, `14px` by default. Long labels are neither shrunk nor wrapped, so pick a size at which the widest 1-unit labels (Home, Pause, PrtSc, ScrLk, PgUp, PgDn) fit on one line with a little room to spare |
+| `--label-outline` | optional outline around key labels so they stay readable over bright gameplay. A `text-shadow` value, `none` by default. Example: `0 0 2px #000, 0 0 2px #000` |
 
 ### Keyboard
 
 | Selector | What it is |
 |---|---|
 | `.key` | every key. `.key.on` is a key that is down |
-| `.key[data-len="5"]` | label length (use it to shrink long labels). `data-w` is the key width in key units (1, 1.25, 2.25, 6.25 ...) |
-| `.key[data-vk="87"]` | one specific key, by Windows virtual-key code (87 = W) |
+| `.key[data-len="5"]` | label length. `data-w` is the key width in key units (1, 1.25, 2.25, 6.25 ...). Prefer one `--label-size` for every key over shrinking long labels, so a row of keys reads evenly |
+| `.key[data-vk="87"]` | one specific key, by Windows virtual-key code (87 = W). Numpad keys use 96-111 and 144; the numpad's Enter is 269 |
 
 ### Mouse (`#mouseSvg`)
 
@@ -61,13 +63,16 @@ only decide how it looks.
 ### Controller
 
 * **Layered artwork (every controller)**: `#layerSkin`, which contains `#icon` (the artwork) and `#fx` (the lit-up copies of the
-  active parts, and the trackpad fingers). `#padSvg[data-skin="steam"]` / `[data-skin="xbox"]` / `[data-skin="ps4"]` / `[data-skin="ps5"]` / `[data-skin="switch"]` / `[data-skin="switch2"]` / `[data-skin="gamecube"]` (and the other skin names) let a theme
+  active parts, and the trackpad fingers). With more than one controller on show there is one of each per controller (the ids repeat, which
+  CSS doesn't mind); `.padItem` is the whole picture of one controller, `.padSvg` its drawing and `.gyroItem` its gyro aim box. `#padSvg[data-skin="steam"]` / `[data-skin="xbox"]` / `[data-skin="ps4"]` / `[data-skin="ps5"]` / `[data-skin="switch"]` / `[data-skin="switch2"]` / `[data-skin="gamecube"]` (and the other skin names) let a theme
   treat each controller differently. Text the overlay draws on top of the artwork (the Steam back-button labels L4/L5/R4/R5) is
   `#layerSkin .lbl`, so a theme can give it a font or colour.
 
 ### Whole overlay
 
 `body[data-theme="<id>"]` is set to your theme's id, `#stage` positions the overlay in the Browser Source, `#root` is the overlay itself.
+With **Free layout** on, `#root` has the class `free` and every piece (`#kb`, `#mouse`, `.padItem`, `.gyroItem`) is positioned absolutely; don't
+set `position`, `left` or `top` on those, and keep their sizes independent of where they sit.
 
 ### Fonts
 
@@ -92,7 +97,8 @@ rounds to nothing in the browser and the whole picture disappears (this happened
 ## Replacing controller artwork
 
 A theme can ship its own artwork. Put a file with one of these names in the theme folder and it is used instead of the built-in one
-while the theme is selected:
+while the theme is selected. The overlay strips scripts, embedded HTML and links to other files from the artwork before it is shown (only
+links to parts of the same file and embedded PNG, JPEG, GIF or WebP images are kept):
 
 | File | Replaces |
 |---|---|
