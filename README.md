@@ -131,6 +131,60 @@ flowchart LR
 
 Windows or your antivirus may warn about the download. That is a false positive; see [Antivirus warnings](#antivirus-and-unrecognised-app-warnings) below.
 
+### 🐧 Linux
+
+Linux has its own releases, tagged `linux-v…` on the [Releases page](../../releases) (the Windows download is the `.exe` zip). The Linux
+version runs from source with Python 3.12 or 3.13: download `InputOverlay_linux-v….tar.gz`, unpack it and `cd InputOverlay`. Or clone the
+repository instead:
+
+```
+git clone https://github.com/Ethral-T/input-overlay.git
+cd input-overlay
+```
+
+Input capture is **X11 only**. A Wayland session, which is the default on Ubuntu and Fedora, does not give this program keystrokes or mouse input from native Wayland applications. Starting the server there still serves the overlay page, but keys pressed in a Wayland app never arrive. Use an X11 session (`DISPLAY` set, and not a Wayland compositor) for capture.
+
+Install the system packages, then the Python packages from `requirements-linux.lock`:
+
+```
+sudo apt install python3-venv python3-pip libusb-1.0-0 xclip xdg-utils
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install --require-hashes --ignore-installed -r requirements-linux.lock
+.venv/bin/python server.py
+```
+
+`--system-site-packages` is what lets the virtualenv import apt's PyGObject. Without `--ignore-installed`, pip treats libraries that are already installed for the system Python (such as idna, pillow, six and typing-extensions) as satisfied and skips their hash check. `--ignore-installed` puts a hash-checked copy of every locked package into the virtualenv.
+
+`xsel` works in place of `xclip`. `xdg-utils` provides `xdg-open` for the themes folder. SDL3 is optional: install the package that provides `libSDL3.so.0` (Debian and Ubuntu: `libsdl3-0`) and controllers that SDL knows are used; without it that backend is skipped and `/dev/input/js*` is used instead.
+
+The tray icon (`python app.py`) only has a menu when PyGObject and AppIndicator are installed:
+
+```
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+```
+
+`gir1.2-appindicator3-0.1` is the older package name, if the Ayatana one is not in your distro. On GNOME the icon stays hidden until the AppIndicator (KStatusNotifierItem) extension is enabled; Ubuntu ships it as `gnome-shell-extension-appindicator`. Those packages are installed for the system Python. A virtual environment created with plain `python3 -m venv .venv` cannot import them, so the menu stays missing even though apt installed them. `--system-site-packages` (in the command above) lets the environment see them, and the AppIndicator menu appears. Without these packages the server still runs, and the tray prints that Quit, Copy URL and Start at login are unavailable.
+
+Copy URL uses `wl-copy` only when `WAYLAND_DISPLAY` is set. On X11 it uses `xclip` or `xsel`, including when `wl-copy` happens to be installed.
+
+Settings are stored in `$XDG_CONFIG_HOME/InputOverlay` (or `~/.config/InputOverlay`). If `~/InputOverlay/config.json` or `~/InputOverlay/themes` is already there, that directory is kept so an older install is not orphaned. `INPUT_OVERLAY_HOME` overrides the location. Start at login writes `$XDG_CONFIG_HOME/autostart/input-overlay.desktop` (`~/.config/autostart` when that variable is unset). An entry with `Hidden=true` is treated as off.
+
+`python server.py` and `python app.py` from a terminal print to that terminal. `log.txt` in the config directory is written only when there is no console (`stdout` or `stderr` is missing) or the app is the packaged program. A Linux terminal session does not create `log.txt`.
+
+The server listens on `127.0.0.1` (unless you turn on LAN access) and does not run as root. Gamepads, the GameCube adapter and the Switch 2 Pro need the logged-in user to be allowed to open the device node. Do not make the nodes world-writable (`MODE="0666"`) and do not start the server with sudo. A udev rule with `TAG+="uaccess"` lets logind grant them to the active session. Create `/etc/udev/rules.d/70-input-overlay.rules`:
+
+```
+# Official GameCube adapter (USB 057e:0337)
+SUBSYSTEM=="usb", ATTR{idVendor}=="057e", ATTR{idProduct}=="0337", TAG+="uaccess"
+# Switch 2 Pro Controller (USB 057e:2069), including its hidraw node
+SUBSYSTEM=="usb", ATTR{idVendor}=="057e", ATTR{idProduct}=="2069", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="2069", TAG+="uaccess"
+# Kernel joystick interface
+SUBSYSTEM=="input", KERNEL=="js*", TAG+="uaccess"
+```
+
+Many desktops already tag `js*` this way. Replug the device after the rule is installed. `/dev/input/js*` still has to be readable by your user; if it is not, the Linux joystick backend says so and the controller picture stays disconnected.
+
 ## 🎬 Set it up in OBS
 
 1. In **Settings** (click the tray icon, or open `http://127.0.0.1:8765/settings`), pick a preset or make your own.
@@ -143,8 +197,8 @@ The source follows your **active preset**, so you never edit the URL again. Chan
 instantly, with no reload. To pin a source to one preset (for example a controller-only source on a second scene), use
 `http://127.0.0.1:8765/?preset=<name>`.
 
-The tray menu lets you open settings, change the active preset, copy the OBS URL (or one pinned to a preset), open the themes folder, start with Windows, and quit.
-Presets are stored in `%APPDATA%\InputOverlay\config.json`, with a log, `log.txt`, next to it.
+The tray menu lets you open settings, change the active preset, copy the OBS URL (or one pinned to a preset), open the themes folder, start with Windows (or at login on Linux), and quit.
+Presets are stored in `%APPDATA%\InputOverlay\config.json` on Windows. On Linux they are in `~/.config/InputOverlay` unless an older `~/InputOverlay` is already present; see [Linux](#-linux). On Windows the log is `log.txt` next to the config. On Linux that file is written only when the process has no console, or when it is packaged; a terminal run prints to the terminal instead.
 
 ### Position and size
 
@@ -348,7 +402,7 @@ Releases page or one you built yourself.
 <summary><b>Build, test and edit the artwork</b></summary>
 <br>
 
-You need Python 3.12 on Windows.
+You need Python 3.12. The packaged program is built on Windows.
 
 ```
 build.bat            builds dist\InputOverlay\InputOverlay.exe (a folder: starts fast, fewer antivirus false positives)
@@ -357,8 +411,18 @@ build.bat onefile    builds a single dist\InputOverlay.exe (slower to start)
 
 The build also needs two DLLs in `lib\`: `SDL3.dll` (the official SDL3 Windows x64 release from
 [libsdl-org/SDL](https://github.com/libsdl-org/SDL)) and `libusb-1.0.dll` (libusb 1.0.30, `VS2022\MS64\dll` from the Windows .7z at
-[libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository, and the build checks them against `lib/SHA256SUMS.txt`. Python packages are pinned with hashes in
-`requirements.lock` and `requirements-dev.lock` (regenerate them with `pip-compile --generate-hashes` after changing `requirements.txt`). Distribute the whole `dist\InputOverlay` folder.
+[libusb releases](https://github.com/libusb/libusb/releases)). Both are already included in the repository, and the build checks them against `lib/SHA256SUMS.txt`. Distribute the whole `dist\InputOverlay` folder.
+
+Python packages are split so each platform installs only what it uses:
+
+| File | What it is |
+|---|---|
+| `requirements.txt` | Shared: the web server, the tray icon, and Pillow |
+| `requirements-windows.txt` | Shared, plus pynput |
+| `requirements-linux.txt` | Shared, plus python-xlib |
+| `requirements-dev.txt` | The Windows build: Windows requirements plus PyInstaller |
+
+Hashes are in `requirements-windows.lock`, `requirements-linux.lock`, and `requirements-dev.lock`. Install with `--require-hashes`. Regenerate a lock with `pip-compile --allow-unsafe --generate-hashes --strip-extras` after changing its `.txt` file. Compile the Windows locks on Windows and the Linux lock on Linux, so each file only picks up that platform's packages. `requirements-constraints.txt` keeps the shared packages on the same versions in both locks.
 
 Release tags are `v` plus the number in `version.py`; the build refuses a tag that doesn't match, so change `version.py` before tagging.
 
@@ -370,6 +434,8 @@ something else already uses 8765), `--host` (default `127.0.0.1`), `--pad N`, an
 URL and in your Stream Deck URLs too (for example `http://127.0.0.1:8800/`).
 
 **Tests.** `pip install -r requirements-test.txt`, then `python -m pytest tests`. The things that need a real keyboard, controller, OBS or a second PC are listed in [docs/TESTING.md](docs/TESTING.md).
+
+On Linux, install with `pip install --require-hashes -r requirements-linux.lock` and see [Linux](#-linux) for the system packages, the X11 limit, and device access. Keyboard, mouse buttons, scroll and mouse movement are read with XInput2. Controllers come from `/dev/input/js*` when that device is readable, and the GameCube adapter and Switch 2 Pro use the system `libusb-1.0`. The tray app (`python app.py`) uses a desktop autostart entry instead of the Windows Run key.
 
 **Controller artwork** is layered SVG: one named group per part, drawn dark and inverted by the overlay, so a new controller is a matter
 of drawing the parts and naming the groups. The original files are in `assets/controllers/` and the copies the overlay uses are in

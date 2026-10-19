@@ -58,8 +58,8 @@ def test_parse_version():
     assert server.parse_version("v1.10.0") > server.parse_version("v1.9.9")
 
 
-def update_with(monkeypatch, reply, status=200):
-    """Run server.check_update against a local stand-in for GitHub that answers `reply`."""
+def update_with(monkeypatch, reply, status=200, prefix="v"):
+    """Run server.check_update against a local stand-in for GitHub that answers `reply`, as the program whose tags start with `prefix`."""
     async def run():
         async def handler(request):
             return web.json_response(reply, status=status)
@@ -68,6 +68,7 @@ def update_with(monkeypatch, reply, status=200):
         async with TestServer(app) as srv:
             monkeypatch.setattr(server, "UPDATE_API", str(srv.make_url("/latest")))
             monkeypatch.setitem(server.update, "latest", None)
+            monkeypatch.setattr(server, "TAG_PREFIX", prefix)
             return await server.check_update()
     return asyncio.run(run())
 
@@ -80,6 +81,22 @@ def test_update_check_accepts_a_good_reply(monkeypatch):
 def test_update_check_same_version_is_not_an_update(monkeypatch):
     r = update_with(monkeypatch, {"tag_name": "v" + server.VERSION, "html_url": server.RELEASES_URL + "tag/x"})
     assert r["available"] is False and r["error"] is None
+
+
+def test_linux_takes_the_newest_linux_release_from_the_list(monkeypatch):
+    releases = [
+        {"tag_name": "linux-v9.9.9", "html_url": server.RELEASES_URL + "tag/linux-v9.9.9", "draft": True},       # not published yet
+        {"tag_name": "v9.8.0", "html_url": server.RELEASES_URL + "tag/v9.8.0"},                                 # the Windows release
+        {"tag_name": "linux-v9.7.0", "html_url": server.RELEASES_URL + "tag/linux-v9.7.0"},
+        {"tag_name": "linux-v9.6.0", "html_url": server.RELEASES_URL + "tag/linux-v9.6.0"},
+    ]
+    r = update_with(monkeypatch, releases, prefix="linux-v")
+    assert r["latest"] == "9.7.0" and r["available"] is True and r["error"] is None
+
+
+def test_windows_ignores_a_linux_tag(monkeypatch):
+    r = update_with(monkeypatch, {"tag_name": "linux-v9.9.9", "html_url": server.RELEASES_URL + "tag/linux-v9.9.9"})
+    assert r["available"] is False and r["error"]
 
 
 @pytest.mark.parametrize("reply", [

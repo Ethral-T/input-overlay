@@ -70,6 +70,21 @@ if sys.stdout is None or sys.stderr is None or FROZEN:
 import server  # noqa: E402  (after stdout is sorted out)
 
 
+def _warn_tray_menu(pystray):
+    """Say so when the Linux tray backend cannot show Quit, Copy URL or Start at login."""
+    if sys.platform == "win32":
+        return
+    module = pystray.Icon.__module__
+    if module.endswith("._xorg") or not getattr(pystray.Icon, "HAS_MENU", True):
+        print("[tray] no menu: install python3-gi, gir1.2-gtk-3.0 and "
+              "gir1.2-ayatanaappindicator3-0.1 (or gir1.2-appindicator3-0.1). "
+              "On GNOME, enable the AppIndicator extension. "
+              "Until then the icon has no Quit, Copy URL or Start at login.")
+    elif module.endswith("._gtk"):
+        print("[tray] using the GTK status icon. On GNOME that icon is hidden; "
+              "install AppIndicator and enable the AppIndicator extension so the menu is visible.")
+
+
 def port_in_use(host, port):
     # A server bound to a wildcard address answers on loopback; connecting to "0.0.0.0" itself fails on Windows,
     # which would make this look like "not running" (breaking the already-running check and the start-up wait).
@@ -83,20 +98,73 @@ def port_in_use(host, port):
 
 
 def copy_to_clipboard(text):
-    # URLs are plain ASCII once percent-encoded, so the built-in `clip` is enough (no extra dependency).
-    clip = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "clip.exe"      # full path: never a look-alike found in another folder
-    subprocess.run([str(clip)], input=text.encode("ascii", "ignore"), creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+    # URLs are plain ASCII once percent-encoded.
+    data = text.encode("ascii", "ignore")
+    if sys.platform == "win32":
+        clip = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "clip.exe"      # full path: never a look-alike found in another folder
+        subprocess.run([str(clip)], input=data, creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+        return
+    # wl-copy exits non-zero on X11 (there is no Wayland compositor), and a failure used
+    # to stop the search before xclip. Only offer it when this session is actually Wayland.
+    commands = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        commands.append(["wl-copy"])
+    commands += [["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]]
+    for cmd in commands:
+        try:
+            result = subprocess.run(cmd, input=data, check=False, timeout=3)
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode == 0:
+            return
+    print(text)
 
 
 # ---- autostart (HKCU Run key, current user only) -------------------------------------------------
 def _autostart_command():
-    if FROZEN:
+    if sys.platform == "win32" and FROZEN:
         return f'"{sys.executable}"'
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    return f'"{pythonw if pythonw.exists() else sys.executable}" "{Path(__file__).resolve()}"'
+    if sys.platform == "win32":
+        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        return f'"{pythonw if pythonw.exists() else sys.executable}" "{Path(__file__).resolve()}"'
+    return f'"{sys.executable}" "{Path(__file__).resolve()}"'
+
+
+def _xdg_config_home():
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    return Path(raw) if raw else Path.home() / ".config"
+
+
+def _autostart_desktop():
+    return _xdg_config_home() / "autostart" / "input-overlay.desktop"
+
+
+def _desktop_value(text, key):
+    """Value of one desktop-entry key, compared case-insensitively, or None."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("[") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        if name.strip().lower() == key:
+            return value.strip().lower()
+    return None
 
 
 def autostart_enabled():
+    if sys.platform != "win32":
+        path = _autostart_desktop()
+        if not path.is_file():
+            return False
+        text = path.read_text(errors="replace")
+        # Hidden=true is how a desktop session disables an autostart entry without deleting it.
+        if _desktop_value(text, "hidden") == "true":
+            return False
+        if _desktop_value(text, "x-gnome-autostart-enabled") == "false":
+            return False
+        return True
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
@@ -106,6 +174,17 @@ def autostart_enabled():
 
 
 def set_autostart(on):
+    if sys.platform != "win32":
+        path = _autostart_desktop()
+        if on:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "[Desktop Entry]\nType=Application\nName=Input Overlay\n"
+                f"Exec={_autostart_command()}\nX-GNOME-Autostart-enabled=true\n",
+                encoding="utf-8")
+        elif path.exists():
+            path.unlink()
+        return
     import winreg
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         if on:
@@ -155,6 +234,7 @@ def main():
 
     import pystray
     from appicon import make_icon
+    _warn_tray_menu(pystray)
 
     def open_settings(*_):
         webbrowser.open(base + "/settings")
@@ -171,7 +251,7 @@ def main():
             yield pystray.MenuItem(n, lambda *_a, u=url: copy_to_clipboard(u))
 
     def open_themes_folder(*_):
-        os.startfile(str(server.themes.Themes(server.ROOT / "themes").ensure_user_dir()))
+        server.open_folder(server.themes.Themes(server.ROOT / "themes").ensure_user_dir())
 
     def open_update_page(*_):
         url = server.update_snapshot()["url"]
@@ -194,7 +274,8 @@ def main():
         pystray.MenuItem("Copy URL pinned to a preset", pystray.Menu(pinned_items)),
         pystray.MenuItem("Open themes folder", open_themes_folder),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Start with Windows", toggle_autostart, checked=lambda item: autostart_enabled()),
+        pystray.MenuItem("Start with Windows" if sys.platform == "win32" else "Start at login",
+                         toggle_autostart, checked=lambda item: autostart_enabled()),
         pystray.MenuItem("Quit", quit_app),
     )
     icon = pystray.Icon(APP_NAME, make_icon(64), "Input Overlay", menu)
