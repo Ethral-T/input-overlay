@@ -12,11 +12,10 @@ C-stick X, C-stick Y, L trigger, R trigger). Needs lib/libusb-1.0.dll on Windows
 (libusb, LGPL-2.1+; see lib/libusb-NOTICE.txt).
 """
 import ctypes
-import sys
 import time
-from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+from usbcommon import claim, open_libusb
+
 VID, PID = 0x057E, 0x0337
 EP_OUT, EP_IN = 0x02, 0x81
 RETRY = 2.0                                     # seconds between attempts to open the adapter while it isn't available
@@ -40,51 +39,13 @@ def _trig(v):
     return max(0, min(255, (v - TRIG_MIN) * 255 // (TRIG_MAX - TRIG_MIN)))
 
 
-def load_libusb():
-    """Vendored libusb-1.0.dll on Windows, or the system libusb-1.0 on Linux."""
-    if sys.platform == "win32":
-        dll = BASE / "lib" / "libusb-1.0.dll"
-        if not dll.exists():
-            raise OSError(f"{dll} not found")
-        return ctypes.CDLL(str(dll))
-    last = None
-    for name in (str(BASE / "lib" / "libusb-1.0.so"), "libusb-1.0.so.0", "libusb-1.0.so"):
-        try:
-            return ctypes.CDLL(name)
-        except OSError as e:
-            last = e
-    raise OSError(f"libusb not found ({last})")
-
-
-def claim(lib, handle, interface):
-    """Claim a USB interface, detaching a kernel driver first when the OS has one."""
-    try:
-        detach = lib.libusb_set_auto_detach_kernel_driver
-    except AttributeError:
-        detach = None
-    if detach is not None:
-        detach.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        detach(handle, 1)
-    return lib.libusb_claim_interface(handle, interface) == 0
-
-
 class GcAdapterBackend:
     name = "GC adapter (libusb)"
 
     def __init__(self, index=None):
-        self.lib = lib = load_libusb()
-        lib.libusb_init.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-        lib.libusb_open_device_with_vid_pid.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_uint16]
-        lib.libusb_open_device_with_vid_pid.restype = ctypes.c_void_p
-        lib.libusb_claim_interface.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        lib.libusb_release_interface.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        lib.libusb_close.argtypes = [ctypes.c_void_p]
-        lib.libusb_exit.argtypes = [ctypes.c_void_p]
-        lib.libusb_interrupt_transfer.argtypes = [ctypes.c_void_p, ctypes.c_ubyte, ctypes.c_void_p, ctypes.c_int,
-                                                  ctypes.POINTER(ctypes.c_int), ctypes.c_uint]
-        self.ctx = ctypes.c_void_p()
-        if lib.libusb_init(ctypes.byref(self.ctx)) != 0:
-            raise OSError("libusb_init failed")
+        self.lib, self.ctx = open_libusb()
+        self.lib.libusb_interrupt_transfer.argtypes = [ctypes.c_void_p, ctypes.c_ubyte, ctypes.c_void_p, ctypes.c_int,
+                                                       ctypes.POINTER(ctypes.c_int), ctypes.c_uint]
         self.index = index                       # which connected controller to show when several are plugged in (default: the first)
         self.handle = None
         self.next_try = 0.0

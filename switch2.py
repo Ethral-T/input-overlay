@@ -19,9 +19,8 @@ import time
 from ctypes import wintypes as wt
 from pathlib import Path
 
-from gcadapter import claim, load_libusb
+from usbcommon import claim, open_libusb
 
-BASE = Path(__file__).resolve().parent
 VID, PID = 0x057E, 0x2069
 RETRY = 2.0                                               # seconds between attempts while the controller isn't there / won't start
 
@@ -186,22 +185,14 @@ class Switch2ProBackend:
     name = "Switch 2 Pro (libusb + HID)"
 
     def __init__(self, index=None):
-        self.lib = lib = load_libusb()
+        self.lib, self.ctx = open_libusb()
+        lib = self.lib
         V = ctypes.c_void_p
-        lib.libusb_init.argtypes = [ctypes.POINTER(V)]
-        lib.libusb_open_device_with_vid_pid.argtypes = [V, ctypes.c_uint16, ctypes.c_uint16]
-        lib.libusb_open_device_with_vid_pid.restype = V
         lib.libusb_get_device.argtypes = [V]
         lib.libusb_get_device.restype = V
         lib.libusb_get_config_descriptor.argtypes = [V, ctypes.c_uint8, ctypes.POINTER(ctypes.POINTER(_ConfigDesc))]
         lib.libusb_free_config_descriptor.argtypes = [ctypes.POINTER(_ConfigDesc)]
-        lib.libusb_claim_interface.argtypes = [V, ctypes.c_int]
-        lib.libusb_release_interface.argtypes = [V, ctypes.c_int]
-        lib.libusb_close.argtypes = [V]
         lib.libusb_bulk_transfer.argtypes = [V, ctypes.c_ubyte, V, ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.c_uint]
-        self.ctx = V()
-        if lib.libusb_init(ctypes.byref(self.ctx)) != 0:
-            raise OSError("libusb_init failed")
         self.k32 = self.sa = self.hid = None
         if sys.platform == "win32":
             self.k32, self.sa, self.hid = _win()

@@ -1,6 +1,5 @@
 """The server's own logic that the config, theme and guard tests don't reach: pages, update check, key codes, gyro toggles, stalled clients."""
 import asyncio
-import json
 
 import pytest
 from aiohttp import web
@@ -133,7 +132,7 @@ def feed(events):
     """Like the real thing: every event goes through the hook's filter first, then pynput calls on_press / on_release for them later, in order."""
     for vk, ext, down in events:
         server.kb_filter(0x100 if down else 0x101, NS(vkCode=vk, flags=1 if ext else 0))
-    for vk, ext, down in events:
+    for vk, _, down in events:
         (server.on_press if down else server.on_release)(key(vk))
 
 
