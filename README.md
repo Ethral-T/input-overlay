@@ -133,7 +133,9 @@ Windows or your antivirus may warn about the download. That is a false positive;
 
 ### 🐧 Linux
 
-The packaged program is the Windows `.exe`. On Linux you run the server from a checkout. Python 3.12 and 3.13 both work.
+Linux has its own releases, tagged `linux-v…` on the [Releases page](../../releases) (the Windows download is the `.exe` zip). The Linux
+version runs from source with Python 3.12 or 3.13: download `InputOverlay_linux-v….tar.gz`, unpack it and `cd InputOverlay`. Or clone the
+repository instead:
 
 ```
 git clone https://github.com/Ethral-T/input-overlay.git

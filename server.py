@@ -1813,7 +1813,11 @@ async def api_open_themes(request):
 # remembers its version number and page. Nothing is downloaded or installed, nothing about you is sent, and the only place it shows is the
 # Settings page and the tray menu. INPUT_OVERLAY_UPDATE_API exists for testing against a local stand-in.
 # --------------------------------------------------------------------------
-UPDATE_API = os.environ.get("INPUT_OVERLAY_UPDATE_API") or "https://api.github.com/repos/Ethral-T/input-overlay/releases/latest"
+# Windows and Linux are released separately: Windows as "v1.2.0" (GitHub's "latest" release), Linux as "linux-v1.2.0" (never marked latest),
+# so the Linux program reads the list of releases and takes the newest Linux one.
+TAG_PREFIX = "v" if sys.platform == "win32" else "linux-v"
+UPDATE_API = os.environ.get("INPUT_OVERLAY_UPDATE_API") or (
+    "https://api.github.com/repos/Ethral-T/input-overlay/releases/" + ("latest" if sys.platform == "win32" else "?per_page=30"))
 RELEASES_URL = "https://github.com/Ethral-T/input-overlay/releases/"
 UPDATE_EVERY = 24 * 3600
 update = {"checked": 0.0, "latest": None, "url": None, "error": None}
@@ -1839,10 +1843,14 @@ async def check_update():
                 if r.status != 200:
                     raise ValueError(f"GitHub answered {r.status}")
                 data = await r.json(content_type=None)
+        if isinstance(data, list):                    # the list of releases, newest first: take the newest published one for this platform
+            data = next((d for d in data if isinstance(d, dict) and not d.get("draft") and not d.get("prerelease")
+                         and str(d.get("tag_name", "")).startswith(TAG_PREFIX)), None) or {}
         tag, url = data.get("tag_name"), data.get("html_url")
-        if parse_version(tag) is None or not isinstance(url, str) or not url.startswith(RELEASES_URL):
+        if not isinstance(tag, str) or not tag.startswith(TAG_PREFIX) or parse_version(tag[len(TAG_PREFIX):]) is None \
+                or not isinstance(url, str) or not url.startswith(RELEASES_URL):
             raise ValueError("unexpected reply")
-        update.update(latest=tag.lstrip("v"), url=url, error=None, checked=time.time())
+        update.update(latest=tag[len(TAG_PREFIX):], url=url, error=None, checked=time.time())
     except Exception as e:  # noqa: BLE001 - no network, GitHub down, odd reply: just try again later
         update.update(error=str(e) or type(e).__name__, checked=time.time() - UPDATE_EVERY + 3600)         # try again in an hour
     return update_snapshot()

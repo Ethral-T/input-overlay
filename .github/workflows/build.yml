@@ -1,4 +1,4 @@
-# Builds the Windows program and packages it as a zip.
+# Builds the Windows program and packages it as a zip. (The Linux version has its own workflow and releases: build-linux.yml.)
 #
 #   * Run it by hand: Actions tab -> Build -> Run workflow. The zip is attached to the run as an artifact.
 #   * Push a tag that starts with "v" (for example v1.0.0): the same build runs and a DRAFT release is created with the zip and its

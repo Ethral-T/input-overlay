@@ -6,7 +6,9 @@ builds the zip and creates a draft release.
 ## Unreleased
 
 - Linux (X11): the server runs from a checkout and captures keyboard, mouse and controllers (XInput2, SDL3 when installed, else `/dev/input/js*`).
-  See "Linux" in the README for the packages, the X11 limit and device access. The download is still Windows only.
+  See "Linux" in the README for the packages, the X11 limit and device access.
+- Windows and Linux are released separately: `v…` tags build the Windows zip (as before), `linux-v…` tags build a Linux `.tar.gz` on a
+  release of its own. The update check on each platform only looks at its own releases.
 - Python requirements are split into `requirements-windows.*` and `requirements-linux.*`.
 
 ## 1.1.0
