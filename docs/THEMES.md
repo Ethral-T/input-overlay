@@ -6,7 +6,8 @@ can write a little CSS you can make one. Themes can't run code and can't load an
 ## Quick start
 
 1. Copy `docs/theme-template/` to your themes folder and rename it (this becomes the theme's id):
-   `%APPDATA%\InputOverlay\themes\my-theme\` (Settings has an **Open themes folder** button, and so does the tray icon).
+   `%APPDATA%\InputOverlay\themes\my-theme\` on Windows, or `~/.config/InputOverlay/themes/my-theme/` on Linux
+   (an existing `~/InputOverlay` is kept). Settings has an **Open themes folder** button, and so does the tray icon.
 2. Edit `theme.json` (name, author, description) and `theme.css`.
 3. In Settings, open **Appearance → Theme**, press **Refresh**, and pick your theme. The preview updates as you choose.
 4. After editing `theme.css`, press **Refresh** again (it reloads the preview). In OBS, right-click the Browser Source,
