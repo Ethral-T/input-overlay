@@ -453,7 +453,7 @@ input-overlay/
 ├── server.py                     ← the local web server, input hooks and controller backends
 ├── config.py                     ← presets and settings: loading, cleaning and saving
 ├── themes.py                     ← finds the built-in and your own themes
-├── gcadapter.py · switch2.py     ← GameCube adapter and Switch 2 Pro over USB
+├── gcadapter.py · switch2.py     ← GameCube adapter and Switch 2 Pro over USB (usbcommon.py: the libusb they share)
 ├── appicon.py                    ← draws the logo and the .exe icon
 ├── overlay/
 │   ├── index.html                ← the overlay OBS loads

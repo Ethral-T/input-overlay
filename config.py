@@ -22,8 +22,12 @@ A preset is one overlay "variant":
 import json
 import os
 import re
+import sys
 import threading
 from pathlib import Path
+
+# The program's own files (overlay/, lib/) live next to this script, or in PyInstaller's extraction dir when frozen.
+BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 
 def app_dir():
     """Where config.json, themes and the log live. See the module docstring."""

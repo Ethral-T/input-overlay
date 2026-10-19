@@ -6,10 +6,10 @@
     <g id="Bumper--R-" affinity:id="Bumper (R)" transform="matrix(-1,0,0,1,1031.769152,0)">
         <path d="M171.176,216.521L170.986,209.496L184.088,204.179L202.885,197.723L216.177,193.356L236.303,192.977L250.924,193.546L263.645,196.394L277.696,200.951L286.05,203.989L286.43,215.382" style="stroke:black;stroke-width:1px;"/>
     </g>
-    <g transform="matrix(0.910764,0,0,1,26.875584,4.526961)">
+    <g id="Trigger--L-" transform="matrix(0.910764,0,0,1,26.875584,4.526961)">
         <rect x="158.231" y="80.876" width="126.755" height="92.35"/>
     </g>
-    <g transform="matrix(0.910764,0,0,1,598.904847,4.526961)">
+    <g id="Trigger--R-" transform="matrix(0.910764,0,0,1,598.904847,4.526961)">
         <rect x="158.231" y="80.876" width="126.755" height="92.35"/>
     </g>
     <g id="Touch-Pad" affinity:id="Touch Pad" transform="matrix(1.040997,0,0,1.020619,-22.413248,-6.591038)">

@@ -57,8 +57,7 @@ from version import VERSION
 from gcadapter import GcAdapterBackend
 from switch2 import Switch2ProBackend
 
-# Bundled files live next to this script, or in PyInstaller's extraction dir when frozen.
-BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+BASE = config.BASE
 ROOT = BASE / "overlay"
 # Changes whenever the bundled overlay files change; overlays reload themselves when it differs from the one they loaded with.
 BUILD_ID = str(int(max((f.stat().st_mtime for f in ROOT.rglob("*") if f.is_file()), default=0)))
@@ -1804,7 +1803,7 @@ async def api_open_themes(request):
     try:
         open_folder(folder)
     except OSError as e:
-        raise web.HTTPInternalServerError(text=str(e))
+        raise web.HTTPInternalServerError(text=str(e)) from None
     return web.json_response({"ok": True, "dir": str(folder)})
 
 
@@ -1881,7 +1880,7 @@ async def api_put_settings(request):
     try:
         saved = request.app[CONFIG].put_settings(await request.json())
     except (ValueError, TypeError) as e:
-        raise web.HTTPBadRequest(text=str(e))
+        raise web.HTTPBadRequest(text=str(e)) from None
     hub.emit({"reload": 1})
     return web.json_response(saved)
 
@@ -1902,7 +1901,7 @@ async def api_switch(request):
     try:
         return web.json_response({"active": set_active(ref)})
     except KeyError:
-        raise web.HTTPNotFound(text=f"no preset called {ref!r}")
+        raise web.HTTPNotFound(text=f"no preset called {ref!r}") from None
 
 
 def gyro_state(cfg):
@@ -1960,7 +1959,7 @@ async def api_put(request):
     try:
         saved = cfg.put(name, await request.json(), rename_from=request.query.get("from"))
     except (ValueError, TypeError) as e:
-        raise web.HTTPBadRequest(text=str(e))
+        raise web.HTTPBadRequest(text=str(e)) from None
     hub.emit({"reload": 1})        # running OBS sources pick up the change
     return web.json_response(saved)
 
@@ -1969,9 +1968,9 @@ async def api_delete(request):
     try:
         request.app[CONFIG].delete(request.match_info["name"])
     except KeyError:
-        raise web.HTTPNotFound()
+        raise web.HTTPNotFound() from None
     except ValueError as e:
-        raise web.HTTPBadRequest(text=str(e))
+        raise web.HTTPBadRequest(text=str(e)) from None
     hub.emit({"reload": 1})
     return web.json_response({"ok": True})
 
@@ -2086,7 +2085,5 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, lambda *_: os._exit(0))
     if hasattr(signal, "SIGBREAK"):                 # Windows console break; Linux has no equivalent
         signal.signal(signal.SIGBREAK, lambda *_: os._exit(0))
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(main(p.parse_args()))
-    except KeyboardInterrupt:
-        pass
