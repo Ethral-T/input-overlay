@@ -10,6 +10,7 @@ builds the zip and creates a draft release.
 - Windows and Linux are released separately: `v…` tags build the Windows zip (as before), `linux-v…` tags build a Linux `.tar.gz` on a
   release of its own. The update check on each platform only looks at its own releases.
 - Python requirements are split into `requirements-windows.*` and `requirements-linux.*`.
+- Security updates: aiohttp 3.14.5 and Pillow 13.0.0 (both fix published advisories), and setuptools 84.2.1 in the Windows build tools.
 
 ## 1.1.0
 
