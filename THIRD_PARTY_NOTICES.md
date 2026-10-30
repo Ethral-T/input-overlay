@@ -15,7 +15,7 @@ licence; none of them is changed by this project.
 | aiohappyeyeballs | | PSF-2.0 | Python package used by aiohttp |
 | attrs, six | | MIT | Python packages |
 | idna | | BSD-3-Clause | Python package |
-| [Pillow](https://python-pillow.org) | 12.3 | MIT-CMU | Python package (draws the tray icon) |
+| [Pillow](https://python-pillow.org) | 13.0.0 | MIT-CMU | Python package (draws the tray icon) |
 | [Python](https://python.org) | 3.12 | PSF-2.0 | the interpreter inside the built program |
 | [PyInstaller](https://pyinstaller.org) | 6.x | GPL-2.0-or-later with a special exception | builds the program; the exception allows the built program to be distributed under any licence |
 | OpenSSL, libffi, the Microsoft Visual C++ runtime | | Apache-2.0, MIT, Microsoft redistributable terms | DLLs that come with Python |
